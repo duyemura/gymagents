@@ -134,7 +134,7 @@ function DashboardContent() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
           <p className="text-gray-500 text-sm">Loading your gym...</p>
         </div>
       </div>
@@ -238,10 +238,10 @@ function DashboardContent() {
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">B</span>
+              <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">G</span>
               </div>
-              <span className="font-bold text-gray-900">BoxAssist</span>
+              <span className="font-bold text-gray-900">GymAgents</span>
             </Link>
             <span className="text-gray-300">|</span>
             <span className="text-gray-600 text-sm font-medium">{data.gym.gym_name}</span>
@@ -280,7 +280,7 @@ function DashboardContent() {
             <div className="text-xs text-gray-500 mt-1">Total members</div>
           </div>
           <div className="card p-4">
-            <div className="text-2xl font-bold text-orange-500">{uniqueActions.filter(a => !actionStates[a.id] || actionStates[a.id] === 'pending').length}</div>
+            <div className="text-2xl font-bold text-violet-600">{uniqueActions.filter(a => !actionStates[a.id] || actionStates[a.id] === 'pending').length}</div>
             <div className="text-xs text-gray-500 mt-1">Actions waiting</div>
           </div>
           <div className="card p-4">
@@ -310,7 +310,7 @@ function DashboardContent() {
                 <button
                   onClick={runAutopilot}
                   disabled={running || (data.tier === 'free' && runsUsed >= 3)}
-                  className="bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm flex items-center gap-2"
+                  className="bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white font-semibold px-5 py-2.5 rounded-lg transition-colors text-sm flex items-center gap-2"
                 >
                   {running ? (
                     <>
@@ -325,8 +325,8 @@ function DashboardContent() {
               </div>
 
               {running && (
-                <div className="bg-orange-50 rounded-lg p-4 text-sm text-orange-700 flex items-center gap-3">
-                  <div className="w-4 h-4 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+                <div className="bg-violet-50 rounded-lg p-4 text-sm text-violet-700 flex items-center gap-3">
+                  <div className="w-4 h-4 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
                   Your assistant is scanning {data.gym.member_count} members for churn signals...
                 </div>
               )}
@@ -357,7 +357,7 @@ function DashboardContent() {
                         <h3 className="font-bold text-gray-900 text-sm">{skill.name}</h3>
                         {skill.tier !== 'free' && (
                           <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
-                            skill.tier === 'starter' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'
+                            skill.tier === 'starter' ? 'bg-violet-100 text-violet-700' : 'bg-purple-100 text-purple-700'
                           }`}>
                             {skill.tier === 'starter' ? 'Starter' : 'Pro'}
                           </span>
@@ -376,7 +376,7 @@ function DashboardContent() {
                         </p>
                       )}
                       {skill.teaser && (
-                        <p className="text-orange-600 text-xs mt-1 italic">💡 {skill.teaser}</p>
+                        <p className="text-violet-600 text-xs mt-1 italic">💡 {skill.teaser}</p>
                       )}
                     </div>
                     <div>
@@ -394,7 +394,7 @@ function DashboardContent() {
                               setUpgradeModal(`Upgrade to ${skill.tier === 'starter' ? 'Starter' : 'Pro'} to unlock ${skill.name}`)
                             }
                           }}
-                          className="text-xs text-gray-400 hover:text-orange-500 font-medium border border-gray-200 px-3 py-1.5 rounded-lg hover:border-orange-300 transition-colors"
+                          className="text-xs text-gray-400 hover:text-violet-600 font-medium border border-gray-200 px-3 py-1.5 rounded-lg hover:border-violet-300 transition-colors"
                         >
                           Unlock →
                         </button>
@@ -423,7 +423,7 @@ function DashboardContent() {
                 <button
                   onClick={runAutopilot}
                   disabled={running}
-                  className="bg-orange-500 hover:bg-orange-600 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
                 >
                   Run first scan →
                 </button>
@@ -480,7 +480,7 @@ function DashboardContent() {
                           <div>
                             <button
                               onClick={() => setUpgradeModal('Upgrade to Starter to send messages with one click. Free tier is read-only.')}
-                              className="w-full bg-orange-100 hover:bg-orange-200 text-orange-700 font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
+                              className="w-full bg-violet-100 hover:bg-violet-200 text-violet-700 font-semibold px-4 py-2 rounded-lg text-sm transition-colors"
                             >
                               🔒 Upgrade to send →
                             </button>
@@ -522,13 +522,13 @@ function DashboardContent() {
             <p className="text-gray-600 text-sm text-center mb-6">{upgradeModal}</p>
             
             <div className="space-y-3 mb-6">
-              <div className="border border-orange-200 rounded-xl p-4 cursor-pointer hover:bg-orange-50 transition-colors" onClick={() => handleCheckout('starter')}>
+              <div className="border border-violet-200 rounded-xl p-4 cursor-pointer hover:bg-violet-50 transition-colors" onClick={() => handleCheckout('starter')}>
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-bold text-gray-900">Starter — $49/month</div>
                     <div className="text-gray-500 text-sm">3 skills, 30 scans, one-click sending</div>
                   </div>
-                  <div className="text-orange-500 font-bold">
+                  <div className="text-violet-600 font-bold">
                     {checkoutLoading === 'starter' ? '...' : '→'}
                   </div>
                 </div>

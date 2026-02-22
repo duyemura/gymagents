@@ -50,19 +50,19 @@ export async function POST(req: NextRequest) {
     await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || 'noreply@valuemygym.com',
       to: normalizedEmail,
-      subject: 'Your BoxAssist login link',
+      subject: 'Your GymAgents login link',
       html: `
         <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
           <h1 style="font-size: 24px; font-weight: 700; color: #1a1a1a; margin-bottom: 8px;">
             Your gym assistant is ready 💪
           </h1>
           <p style="color: #555; font-size: 16px; line-height: 1.5; margin-bottom: 32px;">
-            Click the button below to log in to BoxAssist. This link expires in 15 minutes.
+            Click the button below to log in to GymAgents. This link expires in 15 minutes.
           </p>
           <a href="${magicLink}" 
-             style="display: inline-block; background: #f97316; color: white; font-weight: 600; 
+             style="display: inline-block; background: #7c3aed; color: white; font-weight: 600; 
                     padding: 14px 28px; border-radius: 8px; text-decoration: none; font-size: 16px;">
-            Log In to BoxAssist →
+            Log In to GymAgents →
           </a>
           <p style="color: #999; font-size: 13px; margin-top: 32px;">
             If you didn't request this, you can ignore this email.

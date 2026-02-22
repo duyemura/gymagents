@@ -3,9 +3,9 @@
 @tailwind utilities;
 
 :root {
-  --orange: #f97316;
-  --orange-dark: #ea580c;
-  --orange-light: #fed7aa;
+  --violet: #7c3aed;
+  --violet-dark: #6d28d9;
+  --violet-light: #ede9fe;
   --gray-900: #111827;
   --gray-800: #1f2937;
   --gray-700: #374151;
@@ -25,7 +25,7 @@ body {
 }
 
 .btn-primary {
-  @apply bg-orange-500 hover:bg-orange-600 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200 inline-flex items-center gap-2;
+  @apply bg-violet-600 hover:bg-violet-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200 inline-flex items-center gap-2;
 }
 
 .btn-secondary {
@@ -41,7 +41,7 @@ body {
 }
 
 .input {
-  @apply w-full px-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all;
+  @apply w-full px-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all;
 }
 
 .badge-high {
@@ -61,7 +61,7 @@ body {
 }
 
 .badge-starter {
-  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700;
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700;
 }
 
 .badge-pro {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
@@ -16,16 +16,13 @@ export default function ConnectPage() {
     e.preventDefault()
     setError('')
     setLoading(true)
-    
     try {
       const res = await fetch('/api/gym/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey, companyId })
       })
-      
       const data = await res.json()
-      
       if (!res.ok) {
         setError(data.error || 'Connection failed')
       } else {
@@ -35,7 +32,6 @@ export default function ConnectPage() {
     } catch {
       setError('Something went wrong. Please try again.')
     }
-    
     setLoading(false)
   }
 
@@ -46,13 +42,13 @@ export default function ConnectPage() {
           <div className="text-5xl mb-4">🎉</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">You're connected!</h2>
           <p className="text-gray-600 mb-2">
-            <strong>{success.gymName}</strong> is now connected to BoxAssist.
+            <strong>{success.gymName}</strong> is now connected to GymAgents.
           </p>
           <p className="text-gray-500 text-sm mb-6">
-            {success.memberCount} members found. Your autopilot is ready to run.
+            {success.memberCount > 0 ? `${success.memberCount} members found. ` : ''}Your autopilot is ready to run.
           </p>
-          <div className="flex items-center justify-center gap-2 text-orange-500">
-            <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+          <div className="flex items-center justify-center gap-2 text-violet-600">
+            <div className="w-2 h-2 bg-violet-500 rounded-full animate-pulse"></div>
             <span className="text-sm font-medium">Taking you to your dashboard...</span>
           </div>
         </div>
@@ -65,17 +61,17 @@ export default function ConnectPage() {
       <div className="w-full max-w-lg">
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold">B</span>
+            <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center">
+              <span className="text-white font-bold">V</span>
             </div>
-            <span className="font-bold text-gray-900 text-xl">BoxAssist</span>
+            <span className="font-bold text-gray-900 text-xl tracking-tight">GymAgents</span>
           </Link>
         </div>
 
         <div className="card p-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Connect your gym</h1>
           <p className="text-gray-500 text-sm mb-8">
-            BoxAssist needs read access to your PushPress data to find at-risk members. 
+            GymAgents needs read access to your PushPress data to find at-risk members.
             Your API key is encrypted and stored securely.
           </p>
 
@@ -111,7 +107,7 @@ export default function ConnectPage() {
                 type="text"
                 value={companyId}
                 onChange={e => setCompanyId(e.target.value)}
-                placeholder="4a2fe9b52a4dccd6..."
+                placeholder="4a2fe9b5..."
                 className="input font-mono text-sm"
                 required
               />
@@ -123,7 +119,7 @@ export default function ConnectPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+              className="w-full bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -140,11 +136,11 @@ export default function ConnectPage() {
           <div className="mt-8 pt-6 border-t border-gray-100">
             <div className="bg-blue-50 rounded-lg p-4">
               <h3 className="font-semibold text-blue-900 text-sm mb-2">
-                🤔 Don't have a PushPress account?
+                Don't have a PushPress account?
               </h3>
               <p className="text-blue-700 text-sm mb-3">
-                BoxAssist works directly with your PushPress member data. PushPress has a free plan — 
-                most gyms get set up in under 20 minutes.
+                GymAgents works directly with your PushPress member data. PushPress has a free plan — 
+                most gyms and studios get connected in under 20 minutes.
               </p>
               <a
                 href="https://www.pushpress.com"
@@ -159,7 +155,7 @@ export default function ConnectPage() {
         </div>
 
         <p className="text-center text-gray-400 text-xs mt-4">
-          Your API key is AES-256 encrypted. We never see your raw credentials.
+          Your API key is AES-256 encrypted. We never store it in plaintext.
         </p>
       </div>
     </div>

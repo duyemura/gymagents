@@ -59,7 +59,7 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-orange-500 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     )
   }
@@ -73,10 +73,10 @@ export default function SettingsPage() {
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">B</span>
               </div>
-              <span className="font-bold text-gray-900">BoxAssist</span>
+              <span className="font-bold text-gray-900">GymAgents</span>
             </Link>
           </div>
           <div className="flex items-center gap-4">
@@ -104,7 +104,7 @@ export default function SettingsPage() {
             {data?.user?.trial_ends_at && data?.user?.stripe_subscription_status === 'trialing' && (
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 text-sm">Trial ends</span>
-                <span className="text-orange-600 font-medium text-sm">{new Date(data.user.trial_ends_at).toLocaleDateString()}</span>
+                <span className="text-violet-600 font-medium text-sm">{new Date(data.user.trial_ends_at).toLocaleDateString()}</span>
               </div>
             )}
             <div className="flex items-center justify-between">
@@ -127,7 +127,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => handleCheckout('starter')}
                   disabled={checkoutLoading === 'starter'}
-                  className="bg-orange-500 hover:bg-orange-600 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors disabled:opacity-60"
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors disabled:opacity-60"
                 >
                   {checkoutLoading === 'starter' ? 'Loading...' : 'Upgrade to Starter — $49/mo →'}
                 </button>
@@ -189,7 +189,7 @@ export default function SettingsPage() {
           ) : (
             <div>
               <p className="text-gray-600 text-sm mb-3">No gym connected.</p>
-              <Link href="/connect" className="bg-orange-500 text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-orange-600 transition-colors">
+              <Link href="/connect" className="bg-violet-600 text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-violet-700 transition-colors">
                 Connect your gym →
               </Link>
             </div>
