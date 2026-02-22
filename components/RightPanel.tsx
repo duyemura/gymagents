@@ -88,18 +88,6 @@ export default function RightPanel({
       {/* ── NEEDS ATTENTION ── */}
       <div className="px-4 pt-4 pb-3">
 
-        {/* Demo mode callout at top of needs attention */}
-        {isSandboxDemo && actions.length > 0 && (
-          <div className="mb-3 px-2.5 py-2 flex items-start gap-2" style={{ backgroundColor: '#F4FF78' }}>
-            <div>
-              <p className="text-[10px] font-bold tracking-widest uppercase mb-0.5" style={{ color: '#080808' }}>Demo Mode</p>
-              <p className="text-[10px] leading-relaxed" style={{ color: '#080808' }}>
-                These are real actions from a live gym. Click any to see the full agent workflow — then try sending one to your inbox.
-              </p>
-            </div>
-          </div>
-        )}
-
         <div className="flex items-center justify-between mb-2">
           <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase">
             Needs attention{actions.length > 0 ? ` · ${actions.length}` : ''}

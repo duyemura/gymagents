@@ -476,10 +476,8 @@ function DashboardContent() {
     .filter((a, i, self) => i === self.findIndex(b => b.content?.memberId === a.content?.memberId))
     .filter(a => actionStates[a.id] !== 'dismissed')
 
-  const gymName = isSandboxDemo
-    ? (data?.gym?.name ?? data?.gym?.gym_name ?? 'PushPress East')
-    : isDemoParam
-    ? 'Iron & Grit CrossFit'
+  const gymName = isDemo
+    ? 'PushPress East'
     : (data?.gym?.gym_name ?? data?.gym?.name ?? 'Your Gym')
 
   const memberCount = data?.gym?.member_count ?? data?.gym?.memberCount ?? 0

@@ -88,59 +88,44 @@ export default function AppShell({
   return (
     <div className="h-screen flex flex-col overflow-hidden" style={{ backgroundColor: '#F8F9FB' }}>
 
-      {/* Demo banner */}
-      {isDemo && (
-        <div
-          className="flex items-center justify-between px-4 py-2 flex-shrink-0 z-30"
-          style={{ backgroundColor: '#F4FF78', borderBottom: '1px solid rgba(0,0,0,0.08)' }}
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold tracking-widest uppercase px-1.5 py-0.5" style={{ backgroundColor: 'rgba(0,0,0,0.08)', color: '#080808' }}>
-              Demo Mode
-            </span>
-            <span className="text-xs font-medium" style={{ color: '#080808' }}>
-              {isSandboxDemo
-                ? <>You&rsquo;re exploring <strong>PushPress East</strong> — a real gym running GymAgents. Members and actions are live.</>
-                : <>You&rsquo;re viewing sample data from <strong>Iron &amp; Grit CrossFit</strong> — nothing here is real.</>}
-            </span>
-          </div>
-          <a
-            href="/login"
-            className="text-xs font-semibold px-3 py-1 flex-shrink-0 transition-opacity hover:opacity-80"
-            style={{ backgroundColor: '#080808', color: '#F4FF78' }}
-          >
-            Connect my gym &rarr;
-          </a>
-        </div>
-      )}
-
-      {/* Top bar */}
-      <header className="h-12 border-b flex items-center px-4 justify-between flex-shrink-0 z-20" style={{ backgroundColor: '#111827', borderBottomColor: 'rgba(255,255,255,0.08)' }}>
+      {/* Top bar — yellow in demo mode, dark in production */}
+      <header
+        className="h-12 flex items-center px-4 justify-between flex-shrink-0 z-20 border-b"
+        style={{
+          backgroundColor: isDemo ? '#F4FF78' : '#111827',
+          borderBottomColor: isDemo ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.08)',
+        }}
+      >
         <div className="flex items-center gap-2">
           <div
             className="w-5 h-5 flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: '#0063FF' }}
+            style={{ backgroundColor: isDemo ? '#080808' : '#0063FF' }}
           >
-            <span className="text-white font-bold text-xs">G</span>
+            <span className="font-bold text-xs" style={{ color: isDemo ? '#F4FF78' : 'white' }}>G</span>
           </div>
-          <span className="font-medium text-sm text-white">GymAgents</span>
-          <span className="text-sm select-none" style={{ color: 'rgba(255,255,255,0.2)' }}>·</span>
-          <span className="text-sm truncate max-w-32" style={{ color: 'rgba(255,255,255,0.45)' }}>{gymName}</span>
+          <span className="font-medium text-sm" style={{ color: isDemo ? '#080808' : 'white' }}>GymAgents</span>
+          <span className="text-sm select-none" style={{ color: isDemo ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)' }}>·</span>
+          <span className="text-sm truncate max-w-32" style={{ color: isDemo ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)' }}>{gymName}</span>
           {isDemo && (
-            <span className="text-xs px-1.5 py-0.5 ml-1" style={{ color: 'rgba(255,255,255,0.3)', border: '1px solid rgba(255,255,255,0.12)' }}>demo</span>
+            <span
+              className="text-[10px] font-bold tracking-widest uppercase px-1.5 py-0.5 ml-1"
+              style={{ backgroundColor: '#080808', color: '#F4FF78' }}
+            >
+              Demo
+            </span>
           )}
         </div>
 
         <div className="flex items-center gap-4">
           {isDemo ? (
             <>
-              <Link href="/" className="text-xs transition-colors" style={{ color: 'rgba(255,255,255,0.4)' }}>
-                &larr; Back
-              </Link>
+              <span className="text-xs" style={{ color: 'rgba(0,0,0,0.4)' }}>
+                Exploring PushPress East — live data
+              </span>
               <Link
                 href="/login"
-                className="text-xs font-semibold text-white px-3 py-1.5 transition-opacity hover:opacity-80"
-                style={{ backgroundColor: '#0063FF' }}
+                className="text-xs font-semibold px-3 py-1.5 transition-opacity hover:opacity-80"
+                style={{ backgroundColor: '#080808', color: '#F4FF78' }}
               >
                 Connect my gym &rarr;
               </Link>
