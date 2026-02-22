@@ -32,7 +32,7 @@ export default function HomePage() {
             <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">V</span>
             </div>
-            <span className="font-bold text-gray-900 text-lg tracking-tight">GymAgents</span>
+            <span className="font-bold text-gray-900 text-lg tracking-tight">Vela</span>
           </div>
           <div className="flex items-center gap-4">
             <Link href="/login" className="text-gray-600 hover:text-gray-900 font-medium text-sm">
@@ -53,10 +53,10 @@ export default function HomePage() {
         </div>
         <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6 leading-tight">
           Members leave quietly.<br />
-          <span className="text-violet-600">GymAgents sees it coming.</span>
+          <span className="text-violet-600">Vela sees it coming.</span>
         </h1>
         <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
-          GymAgents connects to your PushPress data and watches every member's patterns — 
+          Vela connects to your PushPress data and watches every member's patterns — 
           so you know who's drifting away before they cancel. Then it writes the message 
           to bring them back. All while you teach.
         </p>
@@ -126,14 +126,14 @@ export default function HomePage() {
       <section className="px-6 py-20 max-w-5xl mx-auto">
         <div className="text-center mb-16">
           <h2 className="text-3xl font-bold text-gray-900 mb-4">Working in the background. Every day.</h2>
-          <p className="text-gray-600">Connect your PushPress account once. GymAgents handles the rest.</p>
+          <p className="text-gray-600">Connect your PushPress account once. Vela handles the rest.</p>
         </div>
         <div className="grid md:grid-cols-3 gap-10">
           {[
             {
               step: '01',
               title: 'Alex hasn\'t been in for 19 days',
-              desc: 'Alex used to attend 4 sessions a week. GymAgents notices the drop, scores the risk, and flags it — before Alex cancels or you have to go digging.',
+              desc: 'Alex used to attend 4 sessions a week. Vela notices the drop, scores the risk, and flags it — before Alex cancels or you have to go digging.',
               icon: '🔍'
             },
             {
@@ -145,7 +145,7 @@ export default function HomePage() {
             {
               step: '03',
               title: 'One click. Message sent. Member kept.',
-              desc: 'Approve it as-is, tweak a word, or dismiss it. GymAgents logs what worked and gets sharper over time — learning your gym\'s patterns.',
+              desc: 'Approve it as-is, tweak a word, or dismiss it. Vela logs what worked and gets sharper over time — learning your gym\'s patterns.',
               icon: '✅'
             }
           ].map((step, i) => (
@@ -163,7 +163,7 @@ export default function HomePage() {
       <section className="bg-violet-50 px-6 py-16">
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-2xl font-bold text-gray-900 mb-3">Built for every kind of studio</h2>
-          <p className="text-gray-600 mb-10 text-sm">If your members pay monthly and show up (or don't), GymAgents is for you.</p>
+          <p className="text-gray-600 mb-10 text-sm">If your members pay monthly and show up (or don't), Vela is for you.</p>
           <div className="flex flex-wrap justify-center gap-3">
             {[
               '🏋️ CrossFit boxes',
@@ -194,9 +194,9 @@ export default function HomePage() {
         <div className="grid md:grid-cols-2 gap-6">
           {[
             { name: '🚨 At-Risk Member Detector', desc: 'Scans attendance patterns daily. Flags members going quiet before they cancel. Drafts a personal re-engagement message for each one.', badge: 'Free', badgeColor: 'bg-green-100 text-green-700' },
-            { name: '🎯 Lead Follow-Up Drafter', desc: 'New inquiry while you\'re teaching? GymAgents drafts a response immediately. You approve and send in under 10 seconds.', badge: 'Starter', badgeColor: 'bg-violet-100 text-violet-700' },
-            { name: '💳 Payment Failure Alerter', desc: 'Card declined? GymAgents catches it and drafts a friendly recovery message — before the member even realizes there\'s a problem.', badge: 'Starter', badgeColor: 'bg-violet-100 text-violet-700' },
-            { name: '🎂 Milestone Messenger', desc: 'Member hitting their 6-month or 1-year mark? GymAgents drafts a celebration note that makes them feel seen and valued.', badge: 'Pro', badgeColor: 'bg-purple-100 text-purple-700' },
+            { name: '🎯 Lead Follow-Up Drafter', desc: 'New inquiry while you\'re teaching? Vela drafts a response immediately. You approve and send in under 10 seconds.', badge: 'Starter', badgeColor: 'bg-violet-100 text-violet-700' },
+            { name: '💳 Payment Failure Alerter', desc: 'Card declined? Vela catches it and drafts a friendly recovery message — before the member even realizes there\'s a problem.', badge: 'Starter', badgeColor: 'bg-violet-100 text-violet-700' },
+            { name: '🎂 Milestone Messenger', desc: 'Member hitting their 6-month or 1-year mark? Vela drafts a celebration note that makes them feel seen and valued.', badge: 'Pro', badgeColor: 'bg-purple-100 text-purple-700' },
             { name: '📊 Class Capacity Optimizer', desc: 'Spots which sessions run consistently under capacity and recommends the right time to nudge members to fill the spots.', badge: 'Pro', badgeColor: 'bg-purple-100 text-purple-700' },
             { name: '💰 Revenue Risk Alerter', desc: 'Tracks billing health, pending renewals, and payment patterns. Flags revenue risk before it becomes a month-end surprise.', badge: 'Pro', badgeColor: 'bg-purple-100 text-purple-700' },
           ].map((feature, i) => (
@@ -218,7 +218,7 @@ export default function HomePage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Simple pricing. Obvious ROI.</h2>
-            <p className="text-gray-600">One kept member pays for a year of GymAgents.</p>
+            <p className="text-gray-600">One kept member pays for a year of Vela.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
             {/* Free */}
@@ -306,7 +306,7 @@ export default function HomePage() {
           <div className="mt-8 p-4 bg-blue-50 border border-blue-100 rounded-xl text-center">
             <p className="text-blue-800 text-sm">
               <span className="font-semibold">Don't have PushPress yet?</span>{' '}
-              GymAgents runs on your PushPress member data. PushPress has a free starter plan — most studios are connected in under 20 minutes.{' '}
+              Vela runs on your PushPress member data. PushPress has a free starter plan — most studios are connected in under 20 minutes.{' '}
               <a href="https://www.pushpress.com" target="_blank" rel="noopener" className="underline font-semibold">
                 Get your free PushPress account →
               </a>
@@ -319,12 +319,12 @@ export default function HomePage() {
       <section className="bg-gray-900 text-white px-6 py-20">
         <div className="max-w-4xl mx-auto text-center">
           <h2 className="text-3xl font-bold mb-4">For owners who'd rather teach than do admin</h2>
-          <p className="text-gray-400 mb-12">CrossFit boxes, yoga studios, BJJ academies, pilates — if members pay monthly, GymAgents is your autopilot.</p>
+          <p className="text-gray-400 mb-12">CrossFit boxes, yoga studios, BJJ academies, pilates — if members pay monthly, Vela is your autopilot.</p>
           <div className="grid md:grid-cols-3 gap-6">
             {[
-              { name: 'Marcus T.', gym: 'Apex Strength & Conditioning', text: '"I was manually going through the member list every Sunday morning. GymAgents does it daily now. Got three people back in the first week alone."' },
+              { name: 'Marcus T.', gym: 'Apex Strength & Conditioning', text: '"I was manually going through the member list every Sunday morning. Vela does it daily now. Got three people back in the first week alone."' },
               { name: 'Priya S.', gym: 'Flow State Yoga Studio', text: '"The messages it drafts actually sound like me — not a template. I just hit approve. That alone is worth it. Writing is the part I hate most."' },
-              { name: 'Derek L.', gym: 'Ground Zero BJJ', text: '"My churn was running at 7% monthly. First month with GymAgents I dropped it to 4.5%. At $130/member, that\'s real money every month."' }
+              { name: 'Derek L.', gym: 'Ground Zero BJJ', text: '"My churn was running at 7% monthly. First month with Vela I dropped it to 4.5%. At $130/member, that\'s real money every month."' }
             ].map((t, i) => (
               <div key={i} className="bg-gray-800 rounded-xl p-6 text-left">
                 <p className="text-gray-300 text-sm leading-relaxed italic mb-4">{t.text}</p>
@@ -366,7 +366,7 @@ export default function HomePage() {
             <div className="w-6 h-6 bg-violet-600 rounded flex items-center justify-center">
               <span className="text-white font-bold text-xs">V</span>
             </div>
-            <span className="font-bold text-gray-900 tracking-tight">GymAgents</span>
+            <span className="font-bold text-gray-900 tracking-tight">Vela</span>
             <span className="text-gray-400 text-sm ml-2">© 2026</span>
           </div>
           <div className="flex items-center gap-6 text-sm text-gray-500">

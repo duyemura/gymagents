@@ -241,7 +241,7 @@ function DashboardContent() {
               <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">G</span>
               </div>
-              <span className="font-bold text-gray-900">GymAgents</span>
+              <span className="font-bold text-gray-900">Vela</span>
             </Link>
             <span className="text-gray-300">|</span>
             <span className="text-gray-600 text-sm font-medium">{data.gym.gym_name}</span>

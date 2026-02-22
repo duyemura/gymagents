@@ -42,7 +42,7 @@ export default function ConnectPage() {
           <div className="text-5xl mb-4">🎉</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">You're connected!</h2>
           <p className="text-gray-600 mb-2">
-            <strong>{success.gymName}</strong> is now connected to GymAgents.
+            <strong>{success.gymName}</strong> is now connected to Vela.
           </p>
           <p className="text-gray-500 text-sm mb-6">
             {success.memberCount > 0 ? `${success.memberCount} members found. ` : ''}Your autopilot is ready to run.
@@ -64,14 +64,14 @@ export default function ConnectPage() {
             <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center">
               <span className="text-white font-bold">V</span>
             </div>
-            <span className="font-bold text-gray-900 text-xl tracking-tight">GymAgents</span>
+            <span className="font-bold text-gray-900 text-xl tracking-tight">Vela</span>
           </Link>
         </div>
 
         <div className="card p-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Connect your gym</h1>
           <p className="text-gray-500 text-sm mb-8">
-            GymAgents needs read access to your PushPress data to find at-risk members.
+            Vela needs read access to your PushPress data to find at-risk members.
             Your API key is encrypted and stored securely.
           </p>
 
@@ -139,7 +139,7 @@ export default function ConnectPage() {
                 Don't have a PushPress account?
               </h3>
               <p className="text-blue-700 text-sm mb-3">
-                GymAgents works directly with your PushPress member data. PushPress has a free plan — 
+                Vela works directly with your PushPress member data. PushPress has a free plan — 
                 most gyms and studios get connected in under 20 minutes.
               </p>
               <a

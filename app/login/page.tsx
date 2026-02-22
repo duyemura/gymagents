@@ -49,7 +49,7 @@ function LoginForm() {
             <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center">
               <span className="text-white font-bold">V</span>
             </div>
-            <span className="font-bold text-gray-900 text-xl tracking-tight">GymAgents</span>
+            <span className="font-bold text-gray-900 text-xl tracking-tight">Vela</span>
           </Link>
           <p className="text-gray-500 mt-2 text-sm">Your gym's autopilot</p>
         </div>
@@ -79,7 +79,7 @@ function LoginForm() {
             </div>
           ) : (
             <>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Log in to GymAgents</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Log in to Vela</h1>
               <p className="text-gray-500 text-sm mb-6">
                 We'll send a magic link to your email — no password needed.
               </p>
@@ -115,7 +115,7 @@ function LoginForm() {
               </form>
 
               <div className="mt-6 pt-6 border-t border-gray-100 text-center">
-                <p className="text-gray-500 text-sm">New to GymAgents?</p>
+                <p className="text-gray-500 text-sm">New to Vela?</p>
                 <p className="text-gray-600 text-sm mt-1">
                   Just enter your email — we'll create your account automatically.
                 </p>
@@ -123,7 +123,7 @@ function LoginForm() {
 
               <div className="mt-4 p-3 bg-blue-50 rounded-lg">
                 <p className="text-blue-700 text-xs text-center">
-                  GymAgents connects to your{' '}
+                  Vela connects to your{' '}
                   <a href="https://www.pushpress.com" target="_blank" rel="noopener" className="font-semibold underline">
                     PushPress
                   </a>{' '}
@@ -138,7 +138,7 @@ function LoginForm() {
         </div>
 
         <p className="text-center text-gray-400 text-xs mt-4">
-          <Link href="/" className="hover:text-gray-600">← Back to GymAgents</Link>
+          <Link href="/" className="hover:text-gray-600">← Back to Vela</Link>
         </p>
       </div>
     </div>

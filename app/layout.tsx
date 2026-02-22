@@ -5,7 +5,7 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'GymAgents — Your Gym Runs on Autopilot',
+  title: 'Vela — Your Gym Runs on Autopilot',
   description: 'AI-powered autopilot for boutique gyms. Finds at-risk members, drafts re-engagement messages, and works while you teach.',
   keywords: 'gym management, member retention, gym automation, PushPress, CrossFit, yoga studio, BJJ, pilates, spin studio',
 }

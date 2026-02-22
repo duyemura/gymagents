@@ -76,7 +76,7 @@ export default function SettingsPage() {
               <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">B</span>
               </div>
-              <span className="font-bold text-gray-900">GymAgents</span>
+              <span className="font-bold text-gray-900">Vela</span>
             </Link>
           </div>
           <div className="flex items-center gap-4">
