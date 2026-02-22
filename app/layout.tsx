@@ -5,9 +5,9 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Vela — Your Gym Runs on Autopilot',
-  description: 'AI-powered autopilot for boutique gyms. Finds at-risk members, drafts re-engagement messages, and works while you teach.',
-  keywords: 'gym management, member retention, gym automation, PushPress, CrossFit, yoga studio, BJJ, pilates, spin studio',
+  title: 'GymOS — The Operating System for Your Gym',
+  description: 'AI-powered autopilot for boutique gyms. GymOS watches your PushPress data, finds at-risk members, drafts re-engagement messages, and works while you teach.',
+  keywords: 'gym management, member retention, gym automation, PushPress, CrossFit, yoga studio, BJJ, pilates, spin studio, gym AI',
 }
 
 export default function RootLayout({

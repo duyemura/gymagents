@@ -46,12 +46,15 @@ function LoginForm() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
-            <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold">V</span>
+            <div className="w-10 h-10 bg-blue-700 rounded-xl flex items-center justify-center">
+              <span className="text-white font-bold">G</span>
             </div>
-            <span className="font-bold text-gray-900 text-xl tracking-tight">Vela</span>
+            <span className="font-bold text-gray-900 text-xl tracking-tight">GymOS</span>
           </Link>
-          <p className="text-gray-500 mt-2 text-sm">Your gym's autopilot</p>
+          <p className="text-gray-500 mt-2 text-sm">Your gym's AI autopilot</p>
+          <div className="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-full mt-2">
+            Powered by PushPress
+          </div>
         </div>
 
         <div className="card p-8">
@@ -72,14 +75,14 @@ function LoginForm() {
               <p className="text-gray-400 text-xs">Link expires in 15 minutes. Can't find it? Check spam.</p>
               <button
                 onClick={() => { setSent(false); setEmail('') }}
-                className="mt-4 text-violet-600 hover:text-violet-700 text-sm font-medium"
+                className="mt-4 text-blue-700 hover:text-blue-800 text-sm font-medium"
               >
                 Try a different email
               </button>
             </div>
           ) : (
             <>
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">Log in to Vela</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">Log in to GymOS</h1>
               <p className="text-gray-500 text-sm mb-6">
                 We'll send a magic link to your email — no password needed.
               </p>
@@ -108,14 +111,14 @@ function LoginForm() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+                  className="w-full bg-blue-700 hover:bg-blue-800 disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
                 >
                   {loading ? 'Sending magic link...' : 'Send my login link →'}
                 </button>
               </form>
 
               <div className="mt-6 pt-6 border-t border-gray-100 text-center">
-                <p className="text-gray-500 text-sm">New to Vela?</p>
+                <p className="text-gray-500 text-sm">New to GymOS?</p>
                 <p className="text-gray-600 text-sm mt-1">
                   Just enter your email — we'll create your account automatically.
                 </p>
@@ -123,7 +126,7 @@ function LoginForm() {
 
               <div className="mt-4 p-3 bg-blue-50 rounded-lg">
                 <p className="text-blue-700 text-xs text-center">
-                  Vela connects to your{' '}
+                  GymOS connects to your{' '}
                   <a href="https://www.pushpress.com" target="_blank" rel="noopener" className="font-semibold underline">
                     PushPress
                   </a>{' '}
@@ -138,7 +141,7 @@ function LoginForm() {
         </div>
 
         <p className="text-center text-gray-400 text-xs mt-4">
-          <Link href="/" className="hover:text-gray-600">← Back to Vela</Link>
+          <Link href="/" className="hover:text-gray-600">← Back to GymOS</Link>
         </p>
       </div>
     </div>

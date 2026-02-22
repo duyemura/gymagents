@@ -3,16 +3,20 @@
 @tailwind utilities;
 
 :root {
-  --violet: #7c3aed;
-  --violet-dark: #6d28d9;
-  --violet-light: #ede9fe;
+  --primary: #0057B8;
+  --primary-dark: #003D82;
+  --primary-light: #E8F1FF;
+  --accent: #00A3E0;
+  --navy: #0A1628;
+  --text-dark: #1A2B3C;
+  --gray-50: #F5F7FA;
   --gray-900: #111827;
   --gray-800: #1f2937;
   --gray-700: #374151;
   --gray-600: #4b5563;
   --gray-400: #9ca3af;
   --gray-100: #f3f4f6;
-  --gray-50: #f9fafb;
+  --success: #00C48C;
 }
 
 * {
@@ -20,12 +24,12 @@
 }
 
 body {
-  background: #f9fafb;
-  color: #111827;
+  background: #F5F7FA;
+  color: #1A2B3C;
 }
 
 .btn-primary {
-  @apply bg-violet-600 hover:bg-violet-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200 inline-flex items-center gap-2;
+  @apply bg-blue-700 hover:bg-blue-800 text-white font-semibold px-6 py-3 rounded-lg transition-colors duration-200 inline-flex items-center gap-2;
 }
 
 .btn-secondary {
@@ -41,7 +45,7 @@ body {
 }
 
 .input {
-  @apply w-full px-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-all;
+  @apply w-full px-4 py-3 border border-gray-200 rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all;
 }
 
 .badge-high {
@@ -61,11 +65,11 @@ body {
 }
 
 .badge-starter {
-  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-100 text-violet-700;
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700;
 }
 
 .badge-pro {
-  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700;
+  @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-900 text-blue-100;
 }
 
 @keyframes pulse-ring {

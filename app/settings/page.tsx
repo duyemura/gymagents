@@ -59,7 +59,7 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     )
   }
@@ -73,10 +73,10 @@ export default function SettingsPage() {
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">B</span>
+              <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">G</span>
               </div>
-              <span className="font-bold text-gray-900">Vela</span>
+              <span className="font-bold text-gray-900">GymAgents</span>
             </Link>
           </div>
           <div className="flex items-center gap-4">
@@ -104,7 +104,7 @@ export default function SettingsPage() {
             {data?.user?.trial_ends_at && data?.user?.stripe_subscription_status === 'trialing' && (
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 text-sm">Trial ends</span>
-                <span className="text-violet-600 font-medium text-sm">{new Date(data.user.trial_ends_at).toLocaleDateString()}</span>
+                <span className="text-blue-700 font-medium text-sm">{new Date(data.user.trial_ends_at).toLocaleDateString()}</span>
               </div>
             )}
             <div className="flex items-center justify-between">
@@ -127,7 +127,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => handleCheckout('starter')}
                   disabled={checkoutLoading === 'starter'}
-                  className="bg-violet-600 hover:bg-violet-700 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors disabled:opacity-60"
+                  className="bg-blue-700 hover:bg-blue-800 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-colors disabled:opacity-60"
                 >
                   {checkoutLoading === 'starter' ? 'Loading...' : 'Upgrade to Starter — $49/mo →'}
                 </button>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                <span className="text-green-700 font-medium text-sm">Connected</span>
+                <span className="text-green-700 font-medium text-sm">Connected to PushPress</span>
               </div>
               <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
                 <div className="flex justify-between">
@@ -189,8 +189,8 @@ export default function SettingsPage() {
           ) : (
             <div>
               <p className="text-gray-600 text-sm mb-3">No gym connected.</p>
-              <Link href="/connect" className="bg-violet-600 text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-violet-700 transition-colors">
-                Connect your gym →
+              <Link href="/connect" className="bg-blue-700 text-white font-semibold px-5 py-2 rounded-lg text-sm hover:bg-blue-800 transition-colors">
+                Connect your PushPress gym →
               </Link>
             </div>
           )}

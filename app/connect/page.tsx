@@ -39,17 +39,17 @@ export default function ConnectPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
         <div className="card p-10 text-center max-w-md w-full">
-          <div className="text-5xl mb-4">🎉</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">You're connected!</h2>
+          <div className="text-5xl mb-4">🚀</div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">GymOS is online.</h2>
           <p className="text-gray-600 mb-2">
-            <strong>{success.gymName}</strong> is now connected to Vela.
+            <strong>{success.gymName}</strong> is now connected.
           </p>
           <p className="text-gray-500 text-sm mb-6">
-            {success.memberCount > 0 ? `${success.memberCount} members found. ` : ''}Your autopilot is ready to run.
+            {success.memberCount > 0 ? `${success.memberCount} members loaded. ` : ''}Your agents are ready to run.
           </p>
           <div className="flex items-center justify-center gap-2 text-violet-600">
             <div className="w-2 h-2 bg-violet-500 rounded-full animate-pulse"></div>
-            <span className="text-sm font-medium">Taking you to your dashboard...</span>
+            <span className="text-sm font-medium">Loading your dashboard...</span>
           </div>
         </div>
       </div>
@@ -62,17 +62,17 @@ export default function ConnectPage() {
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2">
             <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold">V</span>
+              <span className="text-white font-bold text-sm tracking-tighter">OS</span>
             </div>
-            <span className="font-bold text-gray-900 text-xl tracking-tight">Vela</span>
+            <span className="font-bold text-gray-900 text-xl tracking-tight">GymOS</span>
           </Link>
         </div>
 
         <div className="card p-8">
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Connect your gym</h1>
           <p className="text-gray-500 text-sm mb-8">
-            Vela needs read access to your PushPress data to find at-risk members.
-            Your API key is encrypted and stored securely.
+            GymOS needs read access to your PushPress data to power your agents.
+            Your API key is AES-256 encrypted at rest.
           </p>
 
           {error && (
@@ -95,7 +95,7 @@ export default function ConnectPage() {
                 required
               />
               <p className="text-xs text-gray-400 mt-1">
-                Find this in PushPress → Settings → API Access
+                PushPress → Settings → API Access
               </p>
             </div>
 
@@ -112,7 +112,7 @@ export default function ConnectPage() {
                 required
               />
               <p className="text-xs text-gray-400 mt-1">
-                Find this in PushPress → Settings → Company Info
+                PushPress → Settings → Company Info
               </p>
             </div>
 
@@ -136,11 +136,11 @@ export default function ConnectPage() {
           <div className="mt-8 pt-6 border-t border-gray-100">
             <div className="bg-blue-50 rounded-lg p-4">
               <h3 className="font-semibold text-blue-900 text-sm mb-2">
-                Don't have a PushPress account?
+                Don't have a PushPress account yet?
               </h3>
               <p className="text-blue-700 text-sm mb-3">
-                Vela works directly with your PushPress member data. PushPress has a free plan — 
-                most gyms and studios get connected in under 20 minutes.
+                GymOS runs on your PushPress member data. PushPress has a free plan — 
+                most gyms are up and running in under 20 minutes.
               </p>
               <a
                 href="https://www.pushpress.com"
@@ -153,10 +153,6 @@ export default function ConnectPage() {
             </div>
           </div>
         </div>
-
-        <p className="text-center text-gray-400 text-xs mt-4">
-          Your API key is AES-256 encrypted. We never store it in plaintext.
-        </p>
       </div>
     </div>
   )

@@ -54,8 +54,8 @@ export async function createCheckoutSession(userId: string, email: string, tier:
       price_data: {
         currency: 'usd',
         product_data: {
-          name: `Vela ${plan.name}`,
-          description: `Vela ${plan.name} — AI autopilot for your gym`
+          name: `GymOS ${plan.name}`,
+          description: `GymOS ${plan.name} — AI autopilot for your gym`
         },
         unit_amount: plan.price,
         recurring: { interval: 'month' }
