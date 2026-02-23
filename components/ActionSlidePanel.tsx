@@ -193,24 +193,24 @@ function EmailThread({
 const SEND_MODES = [
   {
     id: 'send' as const,
-    label: 'Send Now',
-    ownerLabel: 'Send Now',
+    label: 'Send — Manual Mode',
+    ownerLabel: 'Send — Manual Mode',
     color: '#0063FF',
-    tooltip: 'You send it, agent watches. The message goes out immediately from your account. If the member replies, it shows up in Needs Attention for you to handle.',
+    tooltip: 'You send it, you handle replies. Message goes out immediately. If the member replies, it shows up in Needs Attention for you to deal with — agent stays out of it.',
   },
   {
     id: 'smart' as const,
-    label: 'Send & Enter Smart Mode',
-    ownerLabel: 'Send & Enter Smart Mode',
+    label: 'Send — Smart AI Mode',
+    ownerLabel: 'Send — Smart AI Mode',
     color: '#0063FF',
-    tooltip: 'You send it, agent co-pilots the replies. The agent reads member responses and replies autonomously when it\'s confident. If it\'s unsure or the goal isn\'t being met, it escalates to you.',
+    tooltip: 'You send it, AI co-pilots replies. The agent reads member responses and replies when it\'s confident. If it\'s unsure or the conversation gets complicated, it escalates to you.',
   },
   {
     id: 'auto' as const,
-    label: 'Send & Enter Full Auto Mode',
-    ownerLabel: 'Send & Enter Full Auto Mode',
+    label: 'Send — YOLO AI Mode',
+    ownerLabel: 'Send — YOLO AI Mode',
     color: '#16A34A',
-    tooltip: 'Agent owns the whole conversation. It sends this message, reads replies, follows up as needed, and closes the task when the goal is achieved — no input from you required. You\'ll only hear about it if something goes wrong.',
+    tooltip: 'Agent owns the whole conversation. Sends, reads replies, follows up, closes the task when the goal is achieved. You\'ll only hear about it if something goes sideways.',
   },
 ]
 
