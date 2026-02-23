@@ -134,8 +134,15 @@ export default function AppShell({
           {isDemo ? (
             <>
               <span className="text-xs" style={{ color: 'rgba(0,0,0,0.4)' }}>
-                Exploring PushPress East — live data
+                Exploring PushPress East
               </span>
+              <Link
+                href="/api/auth/logout"
+                className="text-xs transition-opacity hover:opacity-60"
+                style={{ color: 'rgba(0,0,0,0.4)' }}
+              >
+                Exit demo
+              </Link>
               <Link
                 href="/login"
                 className="text-xs font-semibold px-3 py-1.5 transition-opacity hover:opacity-80"
