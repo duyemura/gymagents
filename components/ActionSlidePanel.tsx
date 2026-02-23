@@ -331,6 +331,8 @@ function MemberActionPanel({
   const [liveReplyToken, setLiveReplyToken] = useState<string | null>(null)
   const [liveThread, setLiveThread] = useState<Array<{id: string, role: string, text: string, created_at: string, _decision?: any}>>([])
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeTokenRef = useRef<string | null>(null)
+  const pollStoppedRef = useRef<boolean>(false)
   const [priorThreads, setPriorThreads] = useState<any[]>([])
   const [priorThreadsOpen, setPriorThreadsOpen] = useState(false)
   const [sendMethod, setSendMethod] = useState<'email' | 'sms' | 'whatsapp'>('email')
@@ -399,30 +401,56 @@ function MemberActionPanel({
   }
 
   const startLiveThread = (token: string) => {
+    // Stop any existing poll
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    activeTokenRef.current = token
+    pollStoppedRef.current = false
     setLiveReplyToken(token)
+
     const fetchThread = async () => {
+      // Guard: if token changed or poll was stopped, abort
+      if (activeTokenRef.current !== token || pollStoppedRef.current) return
       try {
-        const res = await fetch(`/api/conversations/${token}`)
+        const res = await fetch(`/api/conversations/${token}?_t=${Date.now()}`)
+        if (!res.ok) return
         const data = await res.json()
-        if (data.messages) {
+        // Guard again after async gap
+        if (activeTokenRef.current !== token || pollStoppedRef.current) return
+        if (data.messages && Array.isArray(data.messages)) {
           setLiveThread(data.messages)
-          // Stop polling once agent has made a decision (close/escalate/reply)
-          const hasDecision = data.messages.some((m: any) => m.role === 'agent_decision')
-          if (hasDecision && pollRef.current) {
-            clearInterval(pollRef.current)
-            pollRef.current = null
+          // Stop polling once agent has made a final decision (close/escalate)
+          const decision = data.messages.find((m: any) => m.role === 'agent_decision')?._decision
+          const isFinal = decision?.action === 'close' || decision?.action === 'escalate' || decision?.resolved === true
+          if (isFinal) {
+            pollStoppedRef.current = true
+            if (pollRef.current) {
+              clearInterval(pollRef.current)
+              pollRef.current = null
+            }
           }
         }
-      } catch {}
+      } catch {
+        // Network error — keep polling, don't stop
+      }
     }
+
+    // Immediate fetch, then poll every 3s
     fetchThread()
-    if (pollRef.current) clearInterval(pollRef.current)
     pollRef.current = setInterval(fetchThread, 3000)
   }
 
   // Cleanup poll on unmount
   useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+    return () => {
+      pollStoppedRef.current = true
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+      }
+    }
   }, [])
 
   // On mount: check if this action was already sent (has a thread in DB).
@@ -431,7 +459,7 @@ function MemberActionPanel({
   useEffect(() => {
     const existingToken = (action.content as any)?._replyToken
     if (!existingToken) return
-    fetch(`/api/conversations/${existingToken}`)
+    fetch(`/api/conversations/${existingToken}?_t=${Date.now()}`)
       .then(r => r.json())
       .then(data => {
         if (data.messages?.length) {
@@ -440,9 +468,10 @@ function MemberActionPanel({
           // Mark as already sent — this flips the panel to thread view, hiding compose
           setRealSent(true)
           setRealSentTo((action.content as any)?.memberEmail ?? c.memberEmail ?? '')
-          // Keep polling only if no agent decision yet
-          const hasDecision = data.messages.some((m: any) => m.role === 'agent_decision')
-          if (!hasDecision) startLiveThread(existingToken)
+          // Keep polling only if no final agent decision yet
+          const decision = data.messages.find((m: any) => m.role === 'agent_decision')?._decision
+          const isFinal = decision?.action === 'close' || decision?.action === 'escalate' || decision?.resolved === true
+          if (!isFinal) startLiveThread(existingToken)
         }
       })
       .catch(() => {})

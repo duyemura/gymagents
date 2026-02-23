@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+// Never cache — this is a live conversation poll endpoint
+export const dynamic = 'force-dynamic'
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { token: string } }
@@ -39,5 +42,10 @@ export async function GET(
     return row
   })
 
-  return NextResponse.json({ messages })
+  return NextResponse.json({ messages }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      'Pragma': 'no-cache',
+    },
+  })
 }
