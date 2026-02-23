@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Resend } from 'resend'
 import { handleInboundReply } from '@/lib/reply-agent'
 import { createClient } from '@supabase/supabase-js'
 
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
 async function handleEmailReceived(data: any) {
   const toRaw = data.to ?? ''
   const from = data.from ?? ''
-  const text = data.text ?? data.html ?? ''
+  const emailId = data.email_id ?? ''
 
   const toAddress = Array.isArray(toRaw) ? toRaw[0] : toRaw
 
@@ -95,8 +96,25 @@ async function handleEmailReceived(data: any) {
   }
 
   const actionId = match[1]
+
+  // Resend's email.received webhook only sends metadata — body must be fetched separately
+  let text = data.text ?? data.html ?? ''
+  if (!text && emailId) {
+    try {
+      const resend = new Resend(process.env.RESEND_API_KEY!)
+      const { data: emailData } = await resend.emails.get(emailId)
+      text = (emailData as any)?.text ?? (emailData as any)?.html ?? ''
+      console.log(`email.received: fetched body via get(${emailId}), length=${text.length}`)
+    } catch (err) {
+      console.error('email.received: failed to fetch email body:', err)
+    }
+  }
+
   const cleanText = stripQuotedReply(text)
-  if (!cleanText.trim()) return
+  if (!cleanText.trim()) {
+    console.log('email.received: empty body after stripping quotes, skipping')
+    return
+  }
 
   const nameMatch = from.match(/^(.+?)\s*</)
   const fromName = nameMatch ? nameMatch[1].trim() : from.split('@')[0]
