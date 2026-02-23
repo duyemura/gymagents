@@ -224,14 +224,29 @@ async function handleEmailComplained(data: any) {
 
 function stripQuotedReply(text: string): string {
   if (!text) return ''
-  const stripped = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
-  const lines = stripped.split('\n')
-  const cutoff = lines.findIndex(line =>
-    /^[-_]{3,}/.test(line) ||
-    /^On .+wrote:/.test(line) ||
-    /^From:.*@/.test(line) ||
-    /^>/.test(line.trim())
-  )
+
+  // Remove HTML tags
+  let t = text.replace(/<[^>]+>/g, ' ')
+
+  // Cut at common quoted-reply markers (inline, not just line-start)
+  const cutPatterns = [
+    /\s+On .{5,100}wrote:/,        // Gmail: "On Mon, Feb 22... wrote:"
+    /\s+-----Original Message-----/,
+    /\s+From:.*@.*\n/,
+    /\s+[-]{3,}\s*Forwarded/,
+  ]
+  for (const pat of cutPatterns) {
+    const match = t.search(pat)
+    if (match > 0) {
+      t = t.slice(0, match)
+      break
+    }
+  }
+
+  // Also strip line-quoted lines (lines starting with >)
+  const lines = t.split('\n')
+  const cutoff = lines.findIndex(line => /^\s*>/.test(line))
   const clean = cutoff > 0 ? lines.slice(0, cutoff) : lines
-  return clean.join('\n').trim()
+
+  return clean.join('\n').replace(/\s+/g, ' ').trim()
 }
