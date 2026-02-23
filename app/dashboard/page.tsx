@@ -587,11 +587,6 @@ function DashboardContent() {
               isRunning={running}
               recentRuns={gmRecentRuns}
             />
-            {/* To-Do list */}
-            <ToDoList
-              items={todoItems}
-              onSelectItem={handleSelectToDoItem}
-            />
           </>
         )}
         {/* Agent editor — create or edit */}
@@ -868,18 +863,9 @@ function DashboardContent() {
           <CommandBar isDemo={isDemo} agents={autopilots} scanning={running} memberCount={memberCount} />
         }
         rightPanel={
-          <RightPanel
-            agent={selectedAgent ?? null}
-            actions={agentActions}
-            data={data}
-            isDemo={isDemo}
-            isSandboxDemo={isSandboxDemo}
-            scanning={running}
-            memberCount={memberCount}
-            runResult={runResult}
-            onSelectAction={(a: ActionCard) => selectAction(a)}
-            onSelectRun={setSelectedRun}
-            onScanNow={runScan}
+          <ToDoList
+            items={todoItems}
+            onSelectItem={handleSelectToDoItem}
           />
         }
         slidePanel={
