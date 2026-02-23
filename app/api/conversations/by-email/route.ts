@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 /**
  * GET /api/conversations/by-email?email=dan@pushpress.com
  * Returns all conversation threads for a member, grouped by action_id.
  * Each thread includes resolved/open status from agent_actions.
  */
 export async function GET(req: NextRequest) {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
   const email = req.nextUrl.searchParams.get('email')
   if (!email) return NextResponse.json({ error: 'No email' }, { status: 400 })
 
