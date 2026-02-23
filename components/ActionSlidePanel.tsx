@@ -536,7 +536,7 @@ function MemberActionPanel({
           <span className="text-xs font-medium text-gray-700">{c.memberName}</span>
           <span className="text-gray-300 text-xs">·</span>
           <span className="text-xs text-gray-500">
-            {closed ? 'Goal achieved · Closed' : escalated ? 'Needs attention' : liveThread.length > 1 ? 'Watching for reply…' : `Sent to ${realSentTo}`}
+            {closed ? 'Goal achieved · Closed' : escalated ? 'Needs attention' : liveThread.length > 1 ? 'Watching for reply…' : `Sent · watching for reply`}
           </span>
         </div>
 
@@ -572,9 +572,14 @@ function MemberActionPanel({
 
           {/* Waiting indicator */}
           {!decision && liveThread.length > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2">
-              <span className="w-1 h-1 rounded-full animate-pulse" style={{ backgroundColor: '#0063FF' }} />
-              <span className="text-[10px] text-gray-400">Agent monitoring for reply…</span>
+            <div className="px-3 py-2 space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="w-1 h-1 rounded-full animate-pulse" style={{ backgroundColor: '#0063FF' }} />
+                <span className="text-[10px] text-gray-400">Agent monitoring for reply…</span>
+              </div>
+              {isSandboxDemo && (
+                <p className="text-[10px] text-gray-300 pl-3">Reply to the email — agent will respond automatically. Email delivery may take 1–3 min.</p>
+              )}
             </div>
           )}
         </div>
