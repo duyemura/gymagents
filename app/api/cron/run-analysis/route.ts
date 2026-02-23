@@ -7,12 +7,12 @@
  *
  * vercel.json:
  * {
- *   "crons": [{ "path": "/api/cron/run-analysis", "schedule": "0 * /6 * * *" }]
+ *   "crons": [{ "path": "/api/cron/run-analysis", "schedule": "0 every6h * * *" }]
  * }
  *
  * For each gym:
- *   1. Fetch PushPress data (customers, checkins, enrollments, payment events)
- *   2. Build GymSnapshot
+ *   1. Fetch PushPress data via Platform API v1 (accurate field names from OpenAPI spec)
+ *   2. Build GymSnapshot using pushpress-platform.ts mapping functions
  *   3. Run GMAgent.runAnalysis()
  *   4. Save KPI snapshot
  */
@@ -21,213 +21,132 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
 import { GMAgent } from '@/lib/agents/GMAgent'
-import type {
-  GymSnapshot,
-  MemberData,
-  CheckinData,
-  PaymentEvent,
-} from '@/lib/agents/GMAgent'
+import type { GymSnapshot, PaymentEvent } from '@/lib/agents/GMAgent'
 import { createInsightTask } from '@/lib/db/tasks'
 import { saveKPISnapshot } from '@/lib/db/kpi'
 import * as dbTasks from '@/lib/db/tasks'
 import { sendEmail } from '@/lib/resend'
 import Anthropic from '@anthropic-ai/sdk'
+import {
+  ppGet,
+  buildMemberData,
+  PP_PLATFORM_BASE,
+} from '@/lib/pushpress-platform'
+import type {
+  PPCustomer,
+  PPEnrollment,
+  PPCheckin,
+  MemberDataWithFlags,
+} from '@/lib/pushpress-platform'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// PushPress Platform API v1 (OpenAPI spec field names)
+// buildGymSnapshot — accurate field mapping via pushpress-platform.ts
 // ──────────────────────────────────────────────────────────────────────────────
-
-const PP_BASE = 'https://api.pushpress.com/platform/v1'
-
-interface PPApiCustomer {
-  id: string
-  firstName?: string
-  lastName?: string
-  email?: string
-  phone?: string
-  status?: string        // 'active' | 'cancelled' | 'paused' | etc
-  createdAt?: string
-}
-
-interface PPApiCheckin {
-  id: string
-  customerId: string
-  timestamp?: number     // unix ms
-  createdAt?: string
-  className?: string
-  kind?: string          // 'class' | 'appointment' | 'event' | 'open'
-  role?: string          // 'staff' | 'coach' | 'assistant' | 'attendee'
-  result?: string        // 'success' | 'failure'
-}
-
-interface PPApiBillingSchedule {
-  period?: string        // 'month' | 'week' | 'year' | 'day'
-  amount?: number
-}
-
-interface PPApiEnrollment {
-  id: string
-  customerId: string
-  status?: string        // 'active' | 'cancelled' | etc
-  nextCharge?: string    // ISO date — renewal date
-  billingSchedule?: PPApiBillingSchedule
-}
-
-async function ppGet<T>(
-  apiKey: string,
-  path: string,
-  params: Record<string, string> = {},
-): Promise<T[]> {
-  const url = new URL(`${PP_BASE}${path}`)
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, v)
-  }
-
-  const res = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-  })
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`PushPress API ${res.status} ${path}: ${text}`)
-  }
-
-  const body = await res.json()
-  // Handle both { data: [...] } and [...] shapes
-  return (Array.isArray(body) ? body : body.data ?? []) as T[]
-}
-
-/**
- * Normalize billing schedule period to monthly revenue.
- */
-function normalizeMonthlyRevenue(schedule?: PPApiBillingSchedule): number {
-  if (!schedule?.amount) return 0
-  const amount = schedule.amount
-  switch (schedule.period) {
-    case 'month': return amount
-    case 'week': return amount * 4.33
-    case 'year': return amount / 12
-    case 'day': return amount * 30
-    default: return amount
-  }
-}
-
-/**
- * Map PushPress customer status to MemberData status.
- */
-function mapMemberStatus(ppStatus?: string): MemberData['status'] {
-  switch (ppStatus) {
-    case 'active': return 'active'
-    case 'cancelled':
-    case 'canceled': return 'cancelled'
-    case 'paused':
-    case 'pendpause': return 'paused'
-    case 'prospect':
-    case 'lead': return 'prospect'
-    default: return 'active'
-  }
-}
 
 /**
  * Fetch all PushPress data for a gym and build a GymSnapshot.
+ *
+ * Uses the real Platform API v1 endpoints and field names:
+ *   GET /customers   → PPCustomer[]  (name is { first, last, nickname })
+ *   GET /checkins    → PPCheckin[]   (customer UUID field, timestamp in ms)
+ *   GET /enrollments → PPEnrollment[] (status: active|alert|canceled|paused|etc)
+ *
+ * Auth: API-KEY header (NOT Authorization: Bearer)
  */
 async function buildGymSnapshot(
   gymId: string,
   gymName: string,
   apiKey: string,
+  companyId?: string,
 ): Promise<GymSnapshot> {
   const now = new Date()
+  const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
+  const sixtyDaysAgoMs  = now.getTime() - 60 * 24 * 60 * 60 * 1000
 
-  // Date window: 60 days ago for attendance comparison
-  const thirtyDaysAgo = new Date(now)
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+  // Fetch customers, enrollments, and checkins (60-day window) in parallel.
+  // Checkin timestamps are unix ms — convert to ISO for query params.
+  const sixtyDaysAgoSec = Math.floor(sixtyDaysAgoMs / 1000)
+  const nowSec = Math.floor(now.getTime() / 1000)
 
-  const sixtyDaysAgo = new Date(now)
-  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60)
-
-  // Fetch in parallel
-  const [customers, recentCheckinData, olderCheckinData, enrollments] = await Promise.all([
-    ppGet<PPApiCustomer>(apiKey, '/customers'),
-    ppGet<PPApiCheckin>(apiKey, '/checkins', {
-      startDate: thirtyDaysAgo.toISOString(),
-      endDate: now.toISOString(),
-      kind: 'class',
-      role: 'attendee',
-      result: 'success',
-    }),
-    ppGet<PPApiCheckin>(apiKey, '/checkins', {
-      startDate: sixtyDaysAgo.toISOString(),
-      endDate: thirtyDaysAgo.toISOString(),
-      kind: 'class',
-      role: 'attendee',
-      result: 'success',
-    }),
-    ppGet<PPApiEnrollment>(apiKey, '/enrollments'),
+  const [customers, enrollments, checkins] = await Promise.all([
+    ppGet<PPCustomer>(apiKey, '/customers', {}, companyId),
+    ppGet<PPEnrollment>(apiKey, '/enrollments', {}, companyId),
+    ppGet<PPCheckin>(apiKey, '/checkins', {
+      // The spec uses unix seconds for query params (start/end of class)
+      // but checkin.timestamp itself is unix ms
+      startTimestamp: String(sixtyDaysAgoSec),
+      endTimestamp: String(nowSec),
+    }, companyId),
   ])
 
-  // Index enrollments by customerId for O(1) lookup
-  const enrollmentByCustomer = new Map<string, PPApiEnrollment>()
-  for (const enroll of enrollments) {
-    if (!enrollmentByCustomer.has(enroll.customerId)) {
-      enrollmentByCustomer.set(enroll.customerId, enroll)
+  // Index: customerId → most recent active enrollment
+  // A customer may have multiple enrollments — use the active/alert one first,
+  // fall back to the most recently started.
+  const enrollmentByCustomer = new Map<string, PPEnrollment>()
+  const ACTIVE_PRIORITY: Record<string, number> = {
+    active: 0, alert: 1, pendcancel: 2, paused: 3,
+    pendactivation: 4, completed: 5, canceled: 6,
+  }
+  for (const enr of enrollments) {
+    const existing = enrollmentByCustomer.get(enr.customerId)
+    if (!existing) {
+      enrollmentByCustomer.set(enr.customerId, enr)
+    } else {
+      const existingPriority = ACTIVE_PRIORITY[existing.status] ?? 99
+      const newPriority = ACTIVE_PRIORITY[enr.status] ?? 99
+      if (newPriority < existingPriority) {
+        enrollmentByCustomer.set(enr.customerId, enr)
+      }
     }
   }
 
-  // Count checkins per customer for both windows
-  const recentCountByCustomer = new Map<string, number>()
-  const recentLastCheckinByCustomer = new Map<string, number>()
-  for (const c of recentCheckinData) {
-    const count = (recentCountByCustomer.get(c.customerId) ?? 0) + 1
-    recentCountByCustomer.set(c.customerId, count)
-    const ts = c.timestamp ?? (c.createdAt ? new Date(c.createdAt).getTime() : 0)
-    const existing = recentLastCheckinByCustomer.get(c.customerId) ?? 0
-    if (ts > existing) recentLastCheckinByCustomer.set(c.customerId, ts)
+  // Index: customerId → checkins in 60-day window
+  // Key: checkin.customer is the UUID (NOT customerId)
+  const checkinsByCustomer = new Map<string, PPCheckin[]>()
+  for (const chk of checkins) {
+    const list = checkinsByCustomer.get(chk.customer) ?? []
+    list.push(chk)
+    checkinsByCustomer.set(chk.customer, list)
   }
 
-  const olderCountByCustomer = new Map<string, number>()
-  for (const c of olderCheckinData) {
-    const count = (olderCountByCustomer.get(c.customerId) ?? 0) + 1
-    olderCountByCustomer.set(c.customerId, count)
-  }
-
-  // Build MemberData array
-  const members: MemberData[] = customers.map(customer => {
-    const enrollment = enrollmentByCustomer.get(customer.id)
-    const lastTs = recentLastCheckinByCustomer.get(customer.id)
-
-    return {
-      id: customer.id,
-      name: [customer.firstName, customer.lastName].filter(Boolean).join(' ') || customer.email || customer.id,
-      email: customer.email ?? '',
-      phone: customer.phone,
-      status: mapMemberStatus(enrollment?.status ?? customer.status),
-      membershipType: enrollment ? 'enrolled' : 'no_membership',
-      memberSince: customer.createdAt ?? now.toISOString(),
-      lastCheckinAt: lastTs ? new Date(lastTs).toISOString() : undefined,
-      recentCheckinsCount: recentCountByCustomer.get(customer.id) ?? 0,
-      previousCheckinsCount: olderCountByCustomer.get(customer.id) ?? 0,
-      renewalDate: enrollment?.nextCharge,
-      monthlyRevenue: normalizeMonthlyRevenue(enrollment?.billingSchedule),
-    }
+  // Build MemberData for each customer
+  // Monthly revenue: we don't have plan amounts from the API without fetching /plans.
+  // Use a placeholder of 0 — gym owner knows their prices. Future: fetch /plans.
+  const members: MemberDataWithFlags[] = customers.map(customer => {
+    const enrollment = enrollmentByCustomer.get(customer.id) ?? null
+    const customerCheckins = checkinsByCustomer.get(customer.id) ?? []
+    return buildMemberData(customer, enrollment, customerCheckins, now, 0)
   })
 
-  // Map recent checkins to CheckinData
-  const recentCheckins: CheckinData[] = recentCheckinData.map(c => ({
-    id: c.id,
-    customerId: c.customerId,
-    timestamp: c.timestamp ?? (c.createdAt ? new Date(c.createdAt).getTime() : 0),
-    className: c.className ?? '',
-    kind: (c.kind as CheckinData['kind']) ?? 'class',
-    role: (c.role as CheckinData['role']) ?? 'attendee',
-    result: (c.result as CheckinData['result']) ?? 'success',
-  }))
-
-  // No payment events from polling — those come from webhooks
-  // Cron can query failed payments from Supabase events table if needed
+  // Surface payment_failed insights from 'alert' enrollment status
+  // (alert = payment failed — enrollment is still active but payment is broken)
   const paymentEvents: PaymentEvent[] = []
+  for (const member of members) {
+    if (member.hasPaymentAlert) {
+      paymentEvents.push({
+        id: `alert-${member.id}`,
+        memberId: member.id,
+        memberName: member.name,
+        memberEmail: member.email,
+        eventType: 'payment_failed',
+        amount: member.monthlyRevenue,
+        failedAt: new Date().toISOString(),
+      })
+    }
+  }
+
+  // Map checkins to CheckinData for the snapshot (recent 30 days only)
+  const recentCheckins = checkins
+    .filter(c => c.timestamp >= thirtyDaysAgoMs)
+    .map(c => ({
+      id: c.id,
+      customerId: c.customer,    // normalise to customerId for internal use
+      timestamp: c.timestamp,
+      className: c.name ?? '',
+      kind: c.kind,
+      role: c.role ?? 'attendee',
+      result: c.result ?? 'success',
+    }))
 
   return {
     gymId,
@@ -303,7 +222,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Fetch all connected gyms
   const { data: gyms, error: gymsError } = await supabaseAdmin
     .from('gyms')
-    .select('id, gym_name, pushpress_api_key')
+    .select('id, gym_name, pushpress_api_key, pushpress_company_id')
     .not('pushpress_api_key', 'is', null)
 
   if (gymsError) {
@@ -326,10 +245,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         continue
       }
 
-      // Fetch PushPress data + build snapshot
+      // Fetch PushPress data + build snapshot using accurate Platform API v1 types
       let snapshot: GymSnapshot
       try {
-        snapshot = await buildGymSnapshot(gym.id, gym.gym_name ?? 'Gym', apiKey)
+        snapshot = await buildGymSnapshot(
+          gym.id,
+          gym.gym_name ?? 'Gym',
+          apiKey,
+          gym.pushpress_company_id ?? undefined,
+        )
       } catch (err) {
         console.error(`[run-analysis] PushPress fetch failed for gym ${gym.id}:`, err)
         continue
