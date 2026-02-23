@@ -29,18 +29,28 @@ import { appendChatMessage } from '@/lib/db/chat'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function loadGymContext(gymId: string): Promise<GymContext> {
+interface GymRow {
+  gym_name: string
+  member_count: number
+  pushpress_api_key: string | null
+  pushpress_company_id: string | null
+}
+
+async function loadGymContext(gymId: string): Promise<GymContext & { apiKey?: string; companyId?: string }> {
   try {
     const { data } = await supabaseAdmin
       .from('gyms')
-      .select('gym_name, member_count')
+      .select('gym_name, member_count, pushpress_api_key, pushpress_company_id')
       .eq('id', gymId)
       .single()
 
+    const row = data as GymRow | null
     return {
       gymId,
-      gymName: data?.gym_name ?? 'Your Gym',
-      memberCount: data?.member_count ?? 0,
+      gymName: row?.gym_name ?? 'Your Gym',
+      memberCount: row?.member_count ?? 0,
+      apiKey: row?.pushpress_api_key ?? undefined,
+      companyId: row?.pushpress_company_id ?? undefined,
     }
   } catch {
     return { gymId, gymName: 'Your Gym', memberCount: 0 }
@@ -68,26 +78,67 @@ async function handleDirectAnswer(
   }
 }
 
+async function fetchPushPressData(apiKey: string, companyId: string): Promise<{
+  members: unknown[]
+  checkins: unknown[]
+  enrollments: unknown[]
+}> {
+  const PP_BASE = 'https://api.pushpressdev.com/platform/v1'
+  const headers = {
+    'API-KEY': apiKey,
+    'X-Company-ID': companyId,
+    'Content-Type': 'application/json',
+  }
+
+  const safeFetch = async (path: string) => {
+    try {
+      const res = await fetch(`${PP_BASE}${path}`, { headers })
+      if (!res.ok) return []
+      const json = await res.json()
+      return Array.isArray(json) ? json : (json?.data ?? json?.items ?? [])
+    } catch {
+      return []
+    }
+  }
+
+  const [members, checkins, enrollments] = await Promise.all([
+    safeFetch('/customers?limit=100'),
+    safeFetch('/checkins?limit=200'),
+    safeFetch('/enrollments?limit=100'),
+  ])
+
+  return { members, checkins, enrollments }
+}
+
 async function handleInlineQuery(
   message: string,
-  gymContext: GymContext,
+  gymContext: GymContext & { apiKey?: string; companyId?: string },
 ): Promise<{ reply: string; thinkingSteps: string[] }> {
-  // For now, respond with Sonnet using gym context
-  // In production, this would fetch PushPress data first
+  const thinkingSteps: string[] = ['Classified as inline_query — fetching gym data']
+
+  let dataContext = ''
+
+  if (gymContext.apiKey && gymContext.companyId) {
+    try {
+      const data = await fetchPushPressData(gymContext.apiKey, gymContext.companyId)
+      thinkingSteps.push(`Fetched ${data.members.length} members, ${data.checkins.length} check-ins, ${data.enrollments.length} enrollments`)
+      dataContext = `\n\nLive gym data:\nMembers (${data.members.length}): ${JSON.stringify(data.members.slice(0, 50))}\nRecent check-ins (${data.checkins.length}): ${JSON.stringify(data.checkins.slice(0, 100))}\nEnrollments (${data.enrollments.length}): ${JSON.stringify(data.enrollments.slice(0, 50))}`
+    } catch (err) {
+      thinkingSteps.push('PushPress data fetch failed — responding from context only')
+      console.error('PushPress fetch error:', err)
+    }
+  } else {
+    thinkingSteps.push('No PushPress credentials — responding from context only')
+  }
+
   const systemPrompt = `${buildGymSystemPrompt(gymContext)}
 
-You have access to the gym's data. When asked about specific member data, provide helpful context
-about what you would look for. If data is unavailable in this context, say so clearly and
-explain what the answer would typically look like.`
+You have direct access to this gym's live PushPress data. Answer the question using the actual data provided. Be specific — name real members, real numbers, real dates from the data. Do not hedge or say "I would look for" — you have the data, use it.${dataContext}`
 
   const reply = await claudeRespond(systemPrompt, message)
-  return {
-    reply,
-    thinkingSteps: [
-      `Classified as inline_query — needs data lookup`,
-      `Responded based on available gym context`,
-    ],
-  }
+  thinkingSteps.push('Generated response from live data')
+
+  return { reply, thinkingSteps }
 }
 
 async function handlePrebuiltSpecialist(
@@ -192,17 +243,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const route: TaskRoute = await classifyTask(message.trim())
 
     // 4. Route to handler
+    // For data-heavy routes, always try to fetch PushPress data
     let result: { reply: string; thinkingSteps: string[] }
+    const richContext = gymContext as GymContext & { apiKey?: string; companyId?: string }
 
     switch (route) {
       case 'direct_answer':
         result = await handleDirectAnswer(message.trim(), gymContext)
         break
       case 'inline_query':
-        result = await handleInlineQuery(message.trim(), gymContext)
+        result = await handleInlineQuery(message.trim(), richContext)
         break
       case 'prebuilt_specialist':
-        result = await handlePrebuiltSpecialist(message.trim(), gymContext)
+        // Prebuilt specialist also benefits from live data
+        result = await handleInlineQuery(message.trim(), richContext)
         break
       case 'dynamic_specialist':
         result = await handleDynamicSpecialist(message.trim(), gymContext)
