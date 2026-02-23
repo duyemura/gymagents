@@ -131,6 +131,10 @@ export default function RightPanel({
                 >
                   {isSent
                     ? <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 inline-block mt-0.5" style={{ backgroundColor: '#16A34A' }} />
+                    : action.content.actionKind === 'internal_task'
+                    ? <span className="w-1.5 h-1.5 flex-shrink-0 inline-block mt-0.5" style={{ backgroundColor: '#0063FF' }} />
+                    : action.content.actionKind === 'owner_alert'
+                    ? <span className="w-1.5 h-1.5 flex-shrink-0 inline-block mt-0.5" style={{ backgroundColor: '#F59E0B' }} />
                     : <RiskDot level={action.content.riskLevel} />
                   }
                   <span className="flex-1 min-w-0">

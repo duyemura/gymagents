@@ -218,9 +218,10 @@ Output this exact JSON structure:
       "memberEmail": "string",
       "riskLevel": "high" | "medium" | "low",
       "riskReason": "specific, personal reason (2-3 sentences)",
+      "actionKind": "outreach" | "internal_task" | "owner_alert",
       "recommendedAction": "what the gym owner should do",
-      "draftedMessage": "actual message — warm, personal, 3-5 sentences, references their specific pattern",
-      "messageSubject": "email subject line (casual)",
+      "draftedMessage": "if actionKind=outreach: actual member message. if actionKind=internal_task: task description for owner. if actionKind=owner_alert: alert text for owner",
+      "messageSubject": "email subject line (if outreach, else task title)",
       "confidence": 0-100,
       "insights": "one insight about this specific member"
     }

@@ -11,6 +11,7 @@ interface ActionCard {
     riskLevel: 'high' | 'medium' | 'low'
     riskReason: string
     playbookName?: string
+    actionKind?: 'outreach' | 'internal_task' | 'owner_alert'
     recommendedAction: string
     draftedMessage: string
     messageSubject: string
@@ -622,7 +623,54 @@ function MemberActionPanel({
     )
   }
 
-  // Normal view
+  // Non-outreach tasks (internal_task, owner_alert) — no send UI
+  if (c.actionKind === 'internal_task' || c.actionKind === 'owner_alert') {
+    return (
+      <div className="p-4 space-y-4">
+        {isSandboxDemo && (
+          <div className="px-3 py-2" style={{ backgroundColor: '#F4FF78', borderLeft: '3px solid #080808' }}>
+            <p className="text-[10px] font-bold tracking-widest uppercase mb-0.5" style={{ color: '#080808' }}>Demo Mode</p>
+            <p className="text-xs" style={{ color: '#080808' }}>This is a non-outreach task — the agent identified something that needs attention but doesn't require sending a message to the member.</p>
+          </div>
+        )}
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold tracking-widest uppercase px-1.5 py-0.5"
+              style={{ backgroundColor: c.actionKind === 'owner_alert' ? 'rgba(245,158,11,0.1)' : 'rgba(0,99,255,0.08)', color: c.actionKind === 'owner_alert' ? '#F59E0B' : '#0063FF' }}>
+              {c.actionKind === 'owner_alert' ? 'Alert' : 'Task'}
+            </span>
+            <h3 className="text-base font-semibold text-gray-900">{c.memberName}</h3>
+          </div>
+          <p className="text-xs text-gray-500">{c.riskReason}</p>
+        </div>
+
+        <div>
+          <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-1.5">What needs to happen</p>
+          <div className="px-3 py-3 border border-gray-100" style={{ backgroundColor: '#F9FAFB' }}>
+            <p className="text-sm text-gray-800 leading-relaxed">{c.draftedMessage || c.recommendedAction}</p>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => onSend(action.id, c.memberName, c.draftedMessage)}
+            className="flex-1 text-xs font-semibold text-white py-2 transition-opacity hover:opacity-80"
+            style={{ backgroundColor: '#0063FF' }}
+          >
+            Mark done
+          </button>
+          <button
+            onClick={() => onSkip(action.id)}
+            className="text-xs text-gray-400 px-4 py-2 border border-gray-200 hover:bg-gray-50 transition-colors"
+          >
+            Skip
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Normal view (outreach)
   return (
     <div className="p-4 space-y-5">
 
