@@ -24,6 +24,7 @@ import { GMAgent } from '@/lib/agents/GMAgent'
 import type { GymSnapshot, PaymentEvent } from '@/lib/agents/GMAgent'
 import { createInsightTask } from '@/lib/db/tasks'
 import { saveKPISnapshot } from '@/lib/db/kpi'
+import { appendSystemEvent } from '@/lib/db/chat'
 import * as dbTasks from '@/lib/db/tasks'
 import { sendEmail } from '@/lib/resend'
 import Anthropic from '@anthropic-ai/sdk'
@@ -285,6 +286,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           totalMembers: snapshot.members.length,
         },
       })
+
+      // Append system event to the unified GM chat log
+      await appendSystemEvent(
+        gym.id,
+        `GM ran analysis. Found ${result.insightsFound} insight${result.insightsFound !== 1 ? 's' : ''}${result.insightsFound > 0 ? ', added to your To-Do.' : '.'}`,
+      )
 
       gymsAnalyzed++
       totalInsights += result.insightsFound

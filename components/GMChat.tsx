@@ -1,0 +1,398 @@
+'use client'
+
+import { useState, useEffect, useRef, useCallback } from 'react'
+import type { GMChatMessage } from '@/lib/gmChat'
+
+// ── Demo seed data ────────────────────────────────────────────────────────────
+
+const DEMO_HISTORY: GMChatMessage[] = [
+  {
+    id: 'demo-sys-1',
+    role: 'system_event',
+    content: 'GM ran analysis. Found 3 insights, added to your To-Do.',
+    createdAt: new Date(Date.now() - 4 * 3_600_000).toISOString(), // 4h ago
+  },
+  {
+    id: 'demo-user-1',
+    role: 'user',
+    content: "Who hasn't signed a waiver this month?",
+    createdAt: new Date(Date.now() - 2 * 3_600_000 - 10 * 60_000).toISOString(),
+  },
+  {
+    id: 'demo-gm-1',
+    role: 'assistant',
+    content: '4 members: Derek Walsh, Priya Patel, Tom Chen, and Sarah K. Derek and Priya have been members 30+ days — worth following up directly.',
+    actionType: 'data_table',
+    data: [
+      { name: 'Derek Walsh', email: 'derek@example.com', memberSince: '60 days ago' },
+      { name: 'Priya Patel', email: 'priya@example.com', memberSince: '45 days ago' },
+      { name: 'Tom Chen', email: 'tom@example.com', memberSince: '12 days ago' },
+      { name: 'Sarah K.', email: 'sarah@example.com', memberSince: '8 days ago' },
+    ],
+    route: 'inline_query',
+    createdAt: new Date(Date.now() - 2 * 3_600_000 - 9 * 60_000).toISOString(),
+  },
+  {
+    id: 'demo-user-2',
+    role: 'user',
+    content: 'Draft a reminder for Derek and Priya',
+    createdAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+  },
+  {
+    id: 'demo-gm-2',
+    role: 'assistant',
+    content: `Here's a starting point:\n\n"Hey Derek — just checking in! Before your next class, we need your waiver on file. Takes about 30 seconds: [link]. See you on the floor!"\n\nSame message works for Priya — just swap the name.`,
+    route: 'direct_answer',
+    createdAt: new Date(Date.now() - 2 * 3_600_000 + 30_000).toISOString(),
+  },
+]
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+export interface GMChatProps {
+  gymId: string
+  isDemo: boolean
+  initialHistory?: GMChatMessage[]
+  onTaskCreated?: (taskId: string) => void
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+
+function formatTime(dateStr: string): string {
+  const d = new Date(dateStr)
+  const now = new Date()
+  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86_400_000)
+  const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+  if (diffDays === 0) return `Today ${t}`
+  if (diffDays === 1) return `Yesterday ${t}`
+  return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${t}`
+}
+
+// ── ThinkingDots ──────────────────────────────────────────────────────────────
+
+function ThinkingDots() {
+  return (
+    <div className="flex items-center gap-1 px-4 py-3">
+      {[0, 1, 2].map(i => (
+        <span
+          key={i}
+          className="w-1.5 h-1.5 rounded-full bg-gray-300"
+          style={{
+            animation: 'dotPulse 1.4s ease-in-out infinite',
+            animationDelay: `${i * 0.2}s`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ── DataTable ─────────────────────────────────────────────────────────────────
+
+function DataTable({ data }: { data: Array<Record<string, unknown>> }) {
+  if (!data || data.length === 0) return null
+  const columns = Object.keys(data[0])
+  return (
+    <div className="mt-2 overflow-x-auto">
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr>
+            {columns.map(col => (
+              <th
+                key={col}
+                className="text-left py-1.5 px-2 text-gray-400 font-medium border-b border-gray-100 capitalize"
+              >
+                {col}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row, i) => (
+            <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+              {columns.map(col => (
+                <td key={col} className="py-1.5 px-2 text-gray-700 border-b border-gray-50">
+                  {String(row[col] ?? '—')}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── MessageBubble ─────────────────────────────────────────────────────────────
+
+function MessageBubble({ msg }: { msg: GMChatMessage }) {
+  if (msg.role === 'system_event') {
+    return (
+      <div className="flex flex-col items-center py-3">
+        <div className="flex items-center gap-2">
+          <div className="h-px w-12 bg-gray-100" />
+          <span className="text-[10px] text-gray-300 text-center">
+            {msg.createdAt ? formatTime(msg.createdAt) : ''}
+          </span>
+          <div className="h-px w-12 bg-gray-100" />
+        </div>
+        <p className="text-[11px] text-gray-400 mt-1 text-center max-w-xs">{msg.content}</p>
+      </div>
+    )
+  }
+
+  if (msg.role === 'user') {
+    return (
+      <div className="flex justify-end mb-3">
+        <div className="max-w-[75%]">
+          <div
+            className="px-4 py-2.5 text-sm text-white leading-relaxed"
+            style={{ backgroundColor: '#0063FF', borderRadius: '12px 12px 2px 12px' }}
+          >
+            {msg.content}
+          </div>
+          {msg.createdAt && (
+            <p className="text-[10px] text-gray-300 mt-1 text-right">{formatTime(msg.createdAt)}</p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // assistant
+  return (
+    <div className="flex justify-start mb-3">
+      <div className="max-w-[80%]">
+        <div
+          className="bg-white border border-gray-100 px-4 py-3 text-sm text-gray-900 leading-relaxed"
+          style={{ borderRadius: '2px 12px 12px 12px' }}
+        >
+          {/* Split content on \n to render line breaks */}
+          {msg.content.split('\n').map((line, i) => (
+            <span key={i}>
+              {line}
+              {i < msg.content.split('\n').length - 1 && <br />}
+            </span>
+          ))}
+          {msg.data && msg.data.length > 0 && (
+            <DataTable data={msg.data} />
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          {msg.createdAt && (
+            <p className="text-[10px] text-gray-300">{formatTime(msg.createdAt)}</p>
+          )}
+          {msg.route && (
+            <span className="text-[9px] text-gray-200 uppercase tracking-wide">
+              {msg.route.replace('_', ' ')}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main GMChat component ─────────────────────────────────────────────────────
+
+export default function GMChat({
+  gymId,
+  isDemo,
+  initialHistory,
+  onTaskCreated,
+}: GMChatProps) {
+  const [messages, setMessages] = useState<GMChatMessage[]>(
+    initialHistory ?? (isDemo ? DEMO_HISTORY : []),
+  )
+  const [input, setInput] = useState('')
+  const [isThinking, setIsThinking] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, isThinking])
+
+  const sendMessage = useCallback(async () => {
+    const text = input.trim()
+    if (!text || isThinking) return
+
+    const userMsg: GMChatMessage = {
+      id: `local-${Date.now()}`,
+      role: 'user',
+      content: text,
+      createdAt: new Date().toISOString(),
+    }
+
+    setMessages(prev => [...prev, userMsg])
+    setInput('')
+    setIsThinking(true)
+
+    if (isDemo) {
+      // Demo mode: fake response after delay
+      await new Promise(r => setTimeout(r, 1200))
+      const demoReply: GMChatMessage = {
+        id: `demo-reply-${Date.now()}`,
+        role: 'assistant',
+        content: `This is a demo — in your connected gym, I'd analyze your actual PushPress data and answer that directly. Sign up to connect your gym and ask me anything.`,
+        route: 'direct_answer',
+        createdAt: new Date().toISOString(),
+      }
+      setMessages(prev => [...prev, demoReply])
+      setIsThinking(false)
+      return
+    }
+
+    try {
+      const res = await fetch('/api/gm/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          gymId,
+          conversationHistory: messages.slice(-10), // last 10 for context
+        }),
+      })
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+
+      const data = await res.json()
+      const assistantMsg: GMChatMessage = {
+        id: `reply-${Date.now()}`,
+        role: 'assistant',
+        content: data.reply,
+        route: data.route,
+        actionType: data.actionType,
+        data: data.data,
+        taskId: data.taskId,
+        thinkingSteps: data.thinkingSteps,
+        createdAt: new Date().toISOString(),
+      }
+
+      setMessages(prev => [...prev, assistantMsg])
+
+      if (data.taskId && onTaskCreated) {
+        onTaskCreated(data.taskId)
+      }
+    } catch (err) {
+      const errMsg: GMChatMessage = {
+        id: `err-${Date.now()}`,
+        role: 'assistant',
+        content: 'Something went wrong. Please try again.',
+        createdAt: new Date().toISOString(),
+      }
+      setMessages(prev => [...prev, errMsg])
+    } finally {
+      setIsThinking(false)
+    }
+  }, [input, isThinking, gymId, isDemo, messages, onTaskCreated])
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <style>{`
+        @keyframes dotPulse {
+          0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+          40% { opacity: 1; transform: scale(1.2); }
+        }
+      `}</style>
+
+      {/* ── Header ── */}
+      <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: '#22C55E' }} />
+          <span className="text-sm font-semibold text-gray-900">GM Agent</span>
+          <span className="text-[10px] font-semibold" style={{ color: '#22C55E' }}>Active</span>
+        </div>
+        <p className="text-xs text-gray-400 mt-0.5">Ask anything about your gym</p>
+      </div>
+
+      {/* ── Messages ── */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
+        {messages.length === 0 && !isThinking && (
+          <div className="flex flex-col items-center justify-center h-full text-center py-12">
+            <div
+              className="w-10 h-10 flex items-center justify-center mb-3"
+              style={{ backgroundColor: 'rgba(0,99,255,0.08)' }}
+            >
+              <span className="text-lg">💬</span>
+            </div>
+            <p className="text-sm font-medium text-gray-700 mb-1">Ask me anything</p>
+            <p className="text-xs text-gray-400 max-w-xs leading-relaxed">
+              Who's at churn risk? Revenue this month? Draft a message for a member?
+            </p>
+          </div>
+        )}
+
+        {messages.map(msg => (
+          <MessageBubble key={msg.id ?? msg.createdAt} msg={msg} />
+        ))}
+
+        {isThinking && (
+          <div className="flex justify-start mb-3">
+            <div
+              className="bg-white border border-gray-100"
+              style={{ borderRadius: '2px 12px 12px 12px' }}
+            >
+              <ThinkingDots />
+            </div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* ── Input ── */}
+      <div className="flex-shrink-0 border-t border-gray-100 p-3">
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask me anything…"
+            rows={1}
+            disabled={isThinking}
+            className="flex-1 resize-none text-sm text-gray-900 placeholder-gray-300 border border-gray-200 px-3 py-2 focus:outline-none focus:border-gray-300 disabled:opacity-50 leading-relaxed"
+            style={{
+              borderRadius: 4,
+              maxHeight: 120,
+              overflowY: 'auto',
+              minHeight: 38,
+            }}
+            onInput={e => {
+              const el = e.currentTarget
+              el.style.height = 'auto'
+              el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+            }}
+          />
+          <button
+            onClick={sendMessage}
+            disabled={!input.trim() || isThinking}
+            className="flex-shrink-0 text-[11px] font-semibold text-white px-3 py-2 transition-opacity hover:opacity-80 disabled:opacity-30 flex items-center gap-1"
+            style={{ backgroundColor: '#0063FF', borderRadius: 4, height: 38 }}
+          >
+            {isThinking ? (
+              <span
+                className="w-3 h-3 rounded-full border border-white border-t-transparent animate-spin"
+                style={{ borderTopColor: 'transparent' }}
+              />
+            ) : (
+              'Send →'
+            )}
+          </button>
+        </div>
+        <p className="text-[10px] text-gray-300 mt-1.5">Enter to send · Shift+Enter for new line</p>
+      </div>
+    </div>
+  )
+}

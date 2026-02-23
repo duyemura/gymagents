@@ -16,6 +16,7 @@ import RightPanel from '@/components/RightPanel'
 import SkillEditor from '@/components/SkillEditor'
 import AgentEditor from '@/components/AgentEditor'
 import InstagramConnector from '@/components/InstagramConnector'
+import GMChat from '@/components/GMChat'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -563,31 +564,68 @@ function DashboardContent() {
         )}
       </div>
       {/* Desktop: center content switches based on active nav section */}
-      <div className="hidden md:block h-full overflow-y-auto">
+      <div className="hidden md:flex md:flex-col h-full overflow-hidden">
         {activeSection === 'agents' && !selectedRun && !selectedAgentForEdit && !creatingAgent && (
-          <>
-            {/* Page header */}
-            <div className="px-6 pt-5 pb-3 flex items-center justify-between border-b border-gray-100">
-              <h1 className="text-lg font-semibold text-gray-900">Dashboard</h1>
-            </div>
-            {/* Active scan indicator */}
-            {running && (
-              <div className="border-b border-gray-100 px-6 py-3 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse" style={{ backgroundColor: '#0063FF' }} />
-                <span className="text-xs text-gray-600">Scanning {memberCount && memberCount > 0 ? `${memberCount} members` : 'members'}…</span>
+          <div className="flex flex-col h-full">
+            {/* Collapsed stats bar (replaces standalone GMAgentPanel) */}
+            <div className="flex-shrink-0 border-b border-gray-100 px-4 py-2 flex items-center justify-between gap-4 bg-white">
+              <div className="flex items-center gap-3">
+                {gmActiveMembers !== undefined && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-400 uppercase tracking-widest">Members</span>
+                    <span className="text-xs font-semibold text-gray-900">{gmActiveMembers.toLocaleString()}</span>
+                  </div>
+                )}
+                {gmChurnRisk !== undefined && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-400 uppercase tracking-widest">Churn Risk</span>
+                    <span className="text-xs font-semibold text-gray-900">{gmChurnRisk}</span>
+                  </div>
+                )}
+                {gmLastRunAt && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-400 uppercase tracking-widest">Last run</span>
+                    <span className="text-xs text-gray-500">
+                      {(() => {
+                        const diff = Date.now() - new Date(gmLastRunAt).getTime()
+                        const m = Math.floor(diff / 60_000)
+                        const h = Math.floor(diff / 3_600_000)
+                        const d = Math.floor(diff / 86_400_000)
+                        if (m < 1) return 'just now'
+                        if (m < 60) return `${m}m ago`
+                        if (h < 24) return `${h}h ago`
+                        return `${d}d ago`
+                      })()}
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
-            {/* GM Agent panel */}
-            <GMAgentPanel
-              lastRunAt={gmLastRunAt}
-              insightsFound={gmInsightsFound}
-              activeMembers={gmActiveMembers}
-              churnRiskCount={gmChurnRisk}
-              onRunAnalysis={runScan}
-              isRunning={running}
-              recentRuns={gmRecentRuns}
-            />
-          </>
+              <button
+                onClick={runScan}
+                disabled={running}
+                className="text-[10px] font-semibold text-white px-2.5 py-1 transition-opacity hover:opacity-80 disabled:opacity-50 flex items-center gap-1"
+                style={{ backgroundColor: '#0063FF' }}
+              >
+                {running && (
+                  <span
+                    className="w-2 h-2 rounded-full border border-white animate-spin"
+                    style={{ borderTopColor: 'transparent' }}
+                  />
+                )}
+                {running ? 'Running…' : 'Run Analysis'}
+              </button>
+            </div>
+            {/* GM Chat — fills remaining space */}
+            <div className="flex-1 overflow-hidden">
+              <GMChat
+                gymId={isDemo ? '00000000-0000-0000-0000-000000000001' : (data?.gym?.id ?? '')}
+                isDemo={isDemo}
+                onTaskCreated={(_taskId) => {
+                  fetchDashboard()
+                }}
+              />
+            </div>
+          </div>
         )}
         {/* Agent editor — create or edit */}
         {activeSection === 'agents' && (selectedAgentForEdit || creatingAgent) && !selectedRun && (
