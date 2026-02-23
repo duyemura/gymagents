@@ -208,10 +208,13 @@ export default function GMChat({
   const [isThinking, setIsThinking] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputBarRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom when messages change
+  // Scroll so the input bar is visible at the bottom of the viewport
+  // Use scrollIntoView on the input bar rather than the message list bottom
+  // so we don't pull past the marketing/footer content in demo mode
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    inputBarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, isThinking])
 
   const sendMessage = useCallback(async () => {
@@ -352,7 +355,7 @@ export default function GMChat({
       </div>
 
       {/* ── Input ── */}
-      <div className="flex-shrink-0 border-t border-gray-100 p-3">
+      <div ref={inputBarRef} className="flex-shrink-0 border-t border-gray-100 p-3">
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}
