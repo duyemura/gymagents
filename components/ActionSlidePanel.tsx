@@ -358,11 +358,15 @@ function MemberActionPanel({
 
   const handleAgentHandle = async () => {
     setAgentState('working')
-    // In sandbox demo: actually send the email so they experience the real loop
+    // In sandbox demo: actually send and immediately enter thread view (same as handleSend)
     if (isSandboxDemo && sendTo) {
       try {
         const token = await onRealDemoSend(draftMessage, c.messageSubject, c.memberName, sendTo, sendMode === "auto" ? "full_auto" : sendMode === "smart" ? "smart" : "draft_only")
+        setRealSent(true)
+        setRealSentTo(sendTo)
         if (token) startLiveThread(token)
+        setAgentState('idle') // clear working state — thread view takes over
+        return
       } catch {}
     }
     push(2000, () => setAgentState('done'))
@@ -505,39 +509,35 @@ function MemberActionPanel({
     low: 'Low risk',
   }
 
-  // Agent-handled
+  // Agent-handled (non-sandbox demo simulation only — real sends go through realSent path)
   if (agentState === 'working' || agentState === 'done') {
     return (
       <div className="p-4">
         <div className="flex items-center gap-3 py-4">
-          {agentState === 'working' ? (
-            <span className="text-xs text-gray-400">Agent handling {c.memberName}&hellip;</span>
-          ) : (
-            <>
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-              <span className="text-xs text-gray-400">Message sent · {c.memberName}</span>
-            </>
-          )}
+          <span className="w-1.5 h-1.5 rounded-full animate-pulse flex-shrink-0" style={{ backgroundColor: '#0063FF' }} />
+          <span className="text-xs text-gray-500">{agentState === 'working' ? `Sending to ${c.memberName}…` : `Sent · agent watching`}</span>
         </div>
       </div>
     )
   }
 
-  // Real demo sent
+  // Sent state — unified thread view for all send modes
   if (realSent) {
     const decision = liveThread.find(m => m.role === 'agent_decision')?._decision
     const closed = decision?.action === 'close' || decision?.resolved === true
     const escalated = decision?.action === 'escalate'
+    const modeLabel = sendMode === 'auto' ? 'YOLO AI' : sendMode === 'smart' ? 'Smart AI' : 'Manual'
+    const modeColor = sendMode === 'auto' ? '#16A34A' : '#0063FF'
 
     return (
       <div className="p-4 space-y-3">
         {/* Header */}
-        <div className="flex items-center gap-2">
-          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${closed ? 'bg-green-400' : 'animate-pulse'}`} style={{ backgroundColor: closed ? '#16A34A' : '#0063FF' }} />
-          <span className="text-xs font-medium text-gray-700">{c.memberName}</span>
-          <span className="text-gray-300 text-xs">·</span>
-          <span className="text-xs text-gray-500">
-            {closed ? 'Goal achieved · Closed' : escalated ? 'Needs attention' : liveThread.length > 1 ? 'Watching for reply…' : `Sent · watching for reply`}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 animate-pulse" style={{ backgroundColor: closed ? '#16A34A' : escalated ? '#F59E0B' : '#0063FF', animationPlayState: closed || escalated ? 'paused' : 'running' }} />
+          <span className="text-xs font-semibold text-gray-800">{c.memberName}</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 uppercase tracking-widest" style={{ backgroundColor: `${modeColor}18`, color: modeColor }}>{modeLabel}</span>
+          <span className="text-xs text-gray-400 ml-auto">
+            {closed ? 'Closed · goal achieved' : escalated ? 'Escalated' : liveThread.length > 1 ? 'Agent watching…' : 'Waiting for reply…'}
           </span>
         </div>
 
