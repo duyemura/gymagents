@@ -143,18 +143,70 @@ export async function GET(req: NextRequest) {
     recentRuns = data || []
   }
   
-  // Get pending actions (not approved/dismissed)
+  // Get pending actions — prefer agent_tasks (new), fall back to agent_actions (legacy)
   let pendingActions: any[] = []
-  if (gym && recentRuns.length > 0) {
-    const runIds = recentRuns.map(r => r.id)
-    const { data } = await supabaseAdmin
-      .from('agent_actions')
+  if (gym) {
+    // Try agent_tasks first
+    const { data: tasks, error: tasksError } = await supabaseAdmin
+      .from('agent_tasks')
       .select('*')
-      .in('agent_run_id', runIds)
-      .is('approved', null)
-      .is('dismissed', null)
+      .eq('gym_id', gym.id)
+      .in('status', ['open', 'awaiting_approval', 'in_progress'])
       .order('created_at', { ascending: false })
-    pendingActions = data || []
+      .limit(20)
+
+    if (!tasksError && tasks && tasks.length > 0) {
+      // Map agent_tasks rows to ActionCard shape
+      pendingActions = tasks.map((t: {
+        id: string
+        context?: Record<string, unknown>
+        insight_member_name?: string
+        insight_member_email?: string
+        insight_member_id?: string
+        insight_risk_level?: string
+        insight_reason?: string
+        insight_recommended_action?: string
+        insight_draft_message?: string
+        insight_message_subject?: string
+        insight_confidence?: number
+        insight_detail?: string
+        insight_playbook_name?: string
+        insight_estimated_impact?: string
+        created_at: string
+      }) => {
+        const ctx = t.context ?? {}
+        return {
+          id: t.id,
+          approved: null,
+          dismissed: null,
+          content: {
+            memberId: t.insight_member_id ?? (ctx as Record<string, unknown>).memberId ?? t.id,
+            memberName: t.insight_member_name ?? (ctx as Record<string, unknown>).memberName ?? 'Member',
+            memberEmail: t.insight_member_email ?? (ctx as Record<string, unknown>).memberEmail ?? '',
+            riskLevel: (t.insight_risk_level ?? (ctx as Record<string, unknown>).riskLevel ?? 'medium') as 'high' | 'medium' | 'low',
+            riskReason: t.insight_reason ?? (ctx as Record<string, unknown>).riskReason ?? '',
+            recommendedAction: t.insight_recommended_action ?? (ctx as Record<string, unknown>).recommendedAction ?? '',
+            draftedMessage: t.insight_draft_message ?? (ctx as Record<string, unknown>).draftedMessage ?? '',
+            messageSubject: t.insight_message_subject ?? (ctx as Record<string, unknown>).messageSubject ?? '',
+            confidence: t.insight_confidence ?? (ctx as Record<string, unknown>).confidence ?? 0.75,
+            insights: t.insight_detail ?? (ctx as Record<string, unknown>).insights ?? '',
+            playbookName: t.insight_playbook_name ?? (ctx as Record<string, unknown>).playbookName ?? undefined,
+            estimatedImpact: t.insight_estimated_impact ?? '',
+          },
+        }
+      })
+    } else if (recentRuns.length > 0) {
+      // Fall back to legacy agent_actions
+      const runIds = recentRuns.map((r: { id: string }) => r.id)
+      const { data } = await supabaseAdmin
+        .from('agent_actions')
+        .select('*')
+        .in('agent_run_id', runIds)
+        .is('approved', null)
+        .is('dismissed', null)
+        .order('created_at', { ascending: false })
+      pendingActions = data || []
+    }
   }
   
   // Get monthly run count
