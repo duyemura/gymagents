@@ -12,17 +12,18 @@ export async function POST(req: NextRequest) {
   try {
     const { apiKey, companyId } = await req.json()
 
-    if (!apiKey || !companyId) {
-      return NextResponse.json({ error: 'API key and Company ID are required' }, { status: 400 })
+    if (!apiKey) {
+      return NextResponse.json({ error: 'API key is required' }, { status: 400 })
     }
 
     // Validate connection by fetching member stats
-    const client = createPushPressClient(apiKey, companyId)
+    // companyId is optional — the PushPress API-KEY header is sufficient for most calls
+    const client = createPushPressClient(apiKey, companyId ?? '')
     let gymName = 'Your Gym'
     let memberCount = 0
 
     try {
-      const stats = await getMemberStats(client, companyId)
+      const stats = await getMemberStats(client, companyId ?? '')
       gymName = stats.gymName
       memberCount = stats.totalMembers
     } catch (err: any) {
