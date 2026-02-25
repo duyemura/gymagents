@@ -274,6 +274,11 @@ function DashboardContent() {
     }
   }, [isSandboxDemo, data])
 
+  // Demo: default mobile to Attention tab so the to-do list is visible immediately
+  useEffect(() => {
+    if (isDemo) setMobileTab('attention')
+  }, [isDemo])
+
   // Tour position tracking
   useEffect(() => {
     if (tourStep === 0) {
@@ -930,25 +935,52 @@ function DashboardContent() {
         rightPanel={
           isDemo ? (
             <div className="flex flex-col h-full">
+              {/* Run Analysis — the primary kickoff action */}
               <div className="px-4 py-4 border-b border-gray-100 flex-shrink-0">
-                <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">What the agent did</p>
+                <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">Agent Controls</p>
+                <button
+                  onClick={runScan}
+                  disabled={running}
+                  className="w-full text-xs font-semibold text-white py-2.5 transition-opacity hover:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={{ backgroundColor: '#0063FF' }}
+                >
+                  {running ? (
+                    <>
+                      <span className="w-3 h-3 rounded-full border border-white border-t-transparent animate-spin" />
+                      Scanning members…
+                    </>
+                  ) : (
+                    'Run Analysis Now'
+                  )}
+                </button>
+                <p className="text-[10px] text-gray-400 mt-2 text-center">Scans all members · Drafts outreach · Updates queue</p>
+              </div>
+
+              {/* What the agent did */}
+              <div className="px-4 py-4 border-b border-gray-100 flex-shrink-0">
+                <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">Last run — 2h ago</p>
                 {[
-                  { icon: '→', text: 'Scanned 247 members for attendance patterns', time: '2h ago' },
-                  { icon: '!', text: `Found ${todoItems.length} at-risk signal${todoItems.length !== 1 ? 's' : ''}`, time: '2h ago' },
-                  { icon: '✓', text: `Drafted ${todoItems.length} personal outreach message${todoItems.length !== 1 ? 's' : ''}`, time: '2h ago' },
+                  { icon: '→', text: 'Scanned 247 members for attendance patterns' },
+                  { icon: '!', text: `Found ${todoItems.length} at-risk signal${todoItems.length !== 1 ? 's' : ''}` },
+                  { icon: '✓', text: `Drafted ${todoItems.length} personal outreach message${todoItems.length !== 1 ? 's' : ''}` },
                 ].map((item, i) => (
-                  <div key={i} className="flex items-start gap-2 mb-3">
+                  <div key={i} className="flex items-start gap-2 mb-2">
                     <span className="text-gray-400 text-xs w-4 flex-shrink-0 mt-0.5">{item.icon}</span>
-                    <div>
-                      <p className="text-xs text-gray-700">{item.text}</p>
-                      <p className="text-[10px] text-gray-400">{item.time}</p>
-                    </div>
+                    <p className="text-xs text-gray-600">{item.text}</p>
                   </div>
                 ))}
               </div>
+
+              {/* Hint */}
+              <div className="px-4 py-3 flex-shrink-0">
+                <p className="text-[10px] text-gray-400 leading-relaxed">
+                  ← Click any member card to see the drafted message and approve it.
+                </p>
+              </div>
+
               <div className="flex-1" />
               <div className="p-4 border-t border-gray-100 flex-shrink-0">
-                <p className="text-xs text-gray-500 mb-3 leading-relaxed">This runs every day on your real member data. Connect your gym to see who you&apos;re losing.</p>
+                <p className="text-xs text-gray-500 mb-3 leading-relaxed">Connect your gym to run this on your real member data every day.</p>
                 <a
                   href="/login"
                   className="block w-full text-center text-xs font-semibold text-white py-2.5 transition-opacity hover:opacity-80"
