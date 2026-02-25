@@ -8,7 +8,7 @@
  * MCP server is run as a subprocess per-agent invocation — see lib/claude.ts.
  */
 
-const PP_BASE = 'https://api.pushpressdev.com/v3'
+const PP_BASE = 'https://api.pushpress.com/v3'
 
 export interface PPClient {
   apiKey: string
@@ -18,7 +18,7 @@ export interface PPClient {
 function headers(client: PPClient, extra: Record<string, string> = {}) {
   return {
     'API-KEY': client.apiKey,
-    'X-Company-ID': client.companyId,
+    'company-id': client.companyId,
     'Content-Type': 'application/json',
     ...extra
   }
@@ -62,7 +62,7 @@ export const GYMAGENTS_WEBHOOK_EVENTS = [
 export type WebhookEventType = (typeof GYMAGENTS_WEBHOOK_EVENTS)[number]
 
 interface PPWebhook {
-  uuid: string
+  id: string
   url: string
   eventTypes: string[]
   active: boolean
@@ -94,22 +94,22 @@ export async function registerGymAgentsWebhook(
   if (duplicate) {
     // Make sure it's active
     if (!duplicate.active) {
-      await ppFetch(client, `/webhooks/${duplicate.uuid}/activate`, { method: 'POST' })
+      await ppFetch(client, `/webhooks/${duplicate.id}/activate`, { method: 'PATCH' })
     }
-    return { webhookId: duplicate.uuid, alreadyExisted: true }
+    return { webhookId: duplicate.id, alreadyExisted: true }
   }
 
-  // Create new webhook
+  // Create new webhook with customer event types
   const created = await ppFetch<PPWebhook>(client, '/webhooks', {
     method: 'POST',
     body: JSON.stringify({
       url: targetUrl,
-      eventTypes: GYMAGENTS_WEBHOOK_EVENTS
+      eventTypes: [...GYMAGENTS_WEBHOOK_EVENTS]
     })
   })
 
   return {
-    webhookId: created.uuid,
+    webhookId: created.id,
     signingSecret: created.signingSecret,
     alreadyExisted: false
   }
@@ -122,7 +122,7 @@ export async function deregisterGymAgentsWebhook(
   client: PPClient,
   webhookId: string
 ): Promise<void> {
-  await ppFetch(client, `/webhooks/${webhookId}/deactivate`, { method: 'POST' })
+  await ppFetch(client, `/webhooks/${webhookId}/deactivate`, { method: 'PATCH' })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
