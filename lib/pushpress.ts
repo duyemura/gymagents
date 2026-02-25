@@ -129,10 +129,17 @@ export async function getMemberStats(client: ReturnType<typeof createPushPressCl
     const response = await client.fetch(`/platform/v1/customers?limit=1&company_id=${companyId}`)
     const total = response?.total || response?.meta?.total || 0
     const gymName = response?.company?.name || 'Your Gym'
-    return { totalMembers: total || 50, gymName }
+    // Capture the company ID from the response if PushPress returns it
+    const resolvedCompanyId: string =
+      response?.company?.id ||
+      response?.company_id ||
+      response?.companyId ||
+      companyId ||
+      ''
+    return { totalMembers: total || 50, gymName, companyId: resolvedCompanyId }
   } catch {
     // If we get a 401/403, the API key format might be wrong but it's still valid in structure
-    return { totalMembers: 0, gymName: 'Your Gym' }
+    return { totalMembers: 0, gymName: 'Your Gym', companyId }
   }
 }
 
