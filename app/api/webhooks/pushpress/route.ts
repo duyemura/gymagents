@@ -64,8 +64,8 @@ export async function POST(req: NextRequest) {
   // Grab raw body for potential signature verification later
   const body = await req.text()
 
-  // Respond 200 immediately — all processing is async
-  processWebhookAsync(body).catch(err =>
+  // Process synchronously — DB writes are fast (<100ms) and PushPress allows up to 30s
+  await processWebhookAsync(body).catch(err =>
     console.error('[webhook] async error:', err)
   )
 
