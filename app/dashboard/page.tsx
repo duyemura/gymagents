@@ -20,6 +20,7 @@ import GMChat from '@/components/GMChat'
 import RetentionScorecard from '@/components/RetentionScorecard'
 import ApprovalQueue from '@/components/ApprovalQueue'
 import ActivityFeed from '@/components/ActivityFeed'
+import AgentRunLog, { LogEntry } from '@/components/AgentRunLog'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -172,6 +173,7 @@ function DashboardContent() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
+  const [runLog, setRunLog] = useState<LogEntry[]>([])
   const [runResult, setRunResult] = useState<any>(null)
   // Dismissed IDs tracked locally so items disappear immediately on dismiss
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
@@ -328,25 +330,58 @@ function DashboardContent() {
 
   const runScan = async () => {
     setRunning(true)
+    setRunLog([])
     setRunResult(null)
+
+    const delay = (ms: number) => new Promise(r => setTimeout(r, ms))
+    const log = (msg: string, type: LogEntry['type'] = 'step') =>
+      setRunLog(prev => [...prev, { msg, type }])
+
+    // Simulated log — runs in parallel with the real API call
+    const simulate = async () => {
+      await delay(300);  log('Connecting to PushPress East…')
+      await delay(700);  log('Fetching member roster…')
+      await delay(500);  log('127 members loaded')
+      await delay(400);  log('Scanning attendance patterns…')
+      await delay(600);  log('Identifying gaps and drop-offs…')
+      await delay(500);  log('Running risk analysis…')
+      await delay(700);  log('Flagging at-risk members', 'found')
+      await delay(400);  log('Drafting outreach messages…')
+      await delay(800);  log('Messages ready', 'found')
+      await delay(300);  log('Analysis complete ✓', 'done')
+    }
+
     if (isDemoParam) {
-      await new Promise(r => setTimeout(r, 2000))
-      setRunResult({ demoMessage: "Found 3 members who need attention — that's what a real scan does with your actual member data" })
+      // URL ?demo=true — pure simulation, no real API
+      await simulate()
+      await delay(1200)
       setRunning(false)
       return
     }
+
     try {
-      const res = await fetch('/api/autopilot/run', { method: 'POST' })
-      const result = await res.json()
-      if (!res.ok) {
-        setRunResult({ error: result.error ?? 'Something went wrong — please try again.' })
+      // Real API call + simulation run in parallel; wait for both
+      const [result] = await Promise.all([
+        fetch('/api/autopilot/run', { method: 'POST' })
+          .then(r => r.json())
+          .catch(() => ({ error: 'Something went wrong — please try again.' })),
+        simulate(),
+      ])
+
+      if (result.error) {
+        log(result.error, 'error')
+        await delay(1500)
       } else {
         setRunResult(result)
-        await fetchDashboard()
+        if (!isDemo) await fetchDashboard()
       }
     } catch {
-      setRunResult({ error: 'Something went wrong — please try again.' })
+      log('Something went wrong — please try again.', 'error')
+      await delay(1500)
     }
+
+    // Brief pause on "complete" line before snapping back to to-do list
+    await delay(1200)
     setRunning(false)
   }
 
@@ -568,31 +603,32 @@ function DashboardContent() {
         {activeSection === 'agents' && !selectedRun && !selectedAgentForEdit && !creatingAgent && (
           <div className="flex flex-col h-full">
             {isDemo ? (
-              <>
-                {/* Demo: sticky header with Run Analysis always visible */}
-                <div className="flex-shrink-0 border-b border-gray-100 px-4 py-2 flex items-center justify-between gap-4 bg-white">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">At-Risk Monitor</span>
-                    <span className="text-[10px] text-gray-400">· last run 2h ago</span>
+              running ? (
+                /* Running: show live agent log */
+                <AgentRunLog
+                  agentName="At-Risk Monitor"
+                  entries={runLog}
+                  done={runLog.some(e => e.type === 'done' || e.type === 'error')}
+                />
+              ) : (
+                <>
+                  {/* Idle: header + to-do list */}
+                  <div className="flex-shrink-0 border-b border-gray-100 px-4 py-2 flex items-center justify-between gap-4 bg-white">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold">At-Risk Monitor</span>
+                      <span className="text-[10px] text-gray-400">· last run 2h ago</span>
+                    </div>
+                    <button
+                      onClick={runScan}
+                      className="text-[10px] font-semibold text-white px-2.5 py-1 transition-opacity hover:opacity-80"
+                      style={{ backgroundColor: '#0063FF' }}
+                    >
+                      Run Analysis
+                    </button>
                   </div>
-                  <button
-                    onClick={runScan}
-                    disabled={running}
-                    className="text-[10px] font-semibold text-white px-2.5 py-1 transition-opacity hover:opacity-80 disabled:opacity-50 flex items-center gap-1"
-                    style={{ backgroundColor: '#0063FF' }}
-                  >
-                    {running ? (
-                      <>
-                        <span className="w-2 h-2 rounded-full border border-white border-t-transparent animate-spin" />
-                        Scanning…
-                      </>
-                    ) : (
-                      'Run Analysis'
-                    )}
-                  </button>
-                </div>
-                <ToDoList items={todoItems} onSelectItem={handleSelectToDoItem} />
-              </>
+                  <ToDoList items={todoItems} onSelectItem={handleSelectToDoItem} />
+                </>
+              )
             ) : (
               <>
                 {/* Collapsed stats bar (replaces standalone GMAgentPanel) */}
@@ -643,15 +679,23 @@ function DashboardContent() {
                     {running ? 'Running…' : 'Run Analysis'}
                   </button>
                 </div>
-                {/* GM Chat — fills remaining space */}
+                {/* Agent log while running; GM Chat otherwise */}
                 <div className="flex-1 overflow-hidden">
-                  <GMChat
-                    gymId={data?.gym?.id ?? ''}
-                    isDemo={false}
-                    onTaskCreated={(_taskId) => {
-                      fetchDashboard()
-                    }}
-                  />
+                  {running ? (
+                    <AgentRunLog
+                      agentName="At-Risk Monitor"
+                      entries={runLog}
+                      done={runLog.some(e => e.type === 'done' || e.type === 'error')}
+                    />
+                  ) : (
+                    <GMChat
+                      gymId={data?.gym?.id ?? ''}
+                      isDemo={false}
+                      onTaskCreated={(_taskId) => {
+                        fetchDashboard()
+                      }}
+                    />
+                  )}
                 </div>
               </>
             )}
