@@ -586,64 +586,73 @@ function DashboardContent() {
       <div className="hidden md:flex md:flex-col h-full overflow-hidden">
         {activeSection === 'agents' && !selectedRun && !selectedAgentForEdit && !creatingAgent && (
           <div className="flex flex-col h-full">
-            {/* Collapsed stats bar (replaces standalone GMAgentPanel) */}
-            <div className="flex-shrink-0 border-b border-gray-100 px-4 py-2 flex items-center justify-between gap-4 bg-white">
-              <div className="flex items-center gap-3">
-                {gmActiveMembers !== undefined && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-gray-400 uppercase tracking-widest">Members</span>
-                    <span className="text-xs font-semibold text-gray-900">{gmActiveMembers.toLocaleString()}</span>
+            {isDemo ? (
+              <>
+                {/* Demo focus: to-do list is the whole point */}
+                <ToDoList items={todoItems} onSelectItem={handleSelectToDoItem} />
+              </>
+            ) : (
+              <>
+                {/* Collapsed stats bar (replaces standalone GMAgentPanel) */}
+                <div className="flex-shrink-0 border-b border-gray-100 px-4 py-2 flex items-center justify-between gap-4 bg-white">
+                  <div className="flex items-center gap-3">
+                    {gmActiveMembers !== undefined && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-gray-400 uppercase tracking-widest">Members</span>
+                        <span className="text-xs font-semibold text-gray-900">{gmActiveMembers.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {gmChurnRisk !== undefined && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-gray-400 uppercase tracking-widest">Churn Risk</span>
+                        <span className="text-xs font-semibold text-gray-900">{gmChurnRisk}</span>
+                      </div>
+                    )}
+                    {gmLastRunAt && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-gray-400 uppercase tracking-widest">Last run</span>
+                        <span className="text-xs text-gray-500">
+                          {(() => {
+                            const diff = Date.now() - new Date(gmLastRunAt).getTime()
+                            const m = Math.floor(diff / 60_000)
+                            const h = Math.floor(diff / 3_600_000)
+                            const d = Math.floor(diff / 86_400_000)
+                            if (m < 1) return 'just now'
+                            if (m < 60) return `${m}m ago`
+                            if (h < 24) return `${h}h ago`
+                            return `${d}d ago`
+                          })()}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                )}
-                {gmChurnRisk !== undefined && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-gray-400 uppercase tracking-widest">Churn Risk</span>
-                    <span className="text-xs font-semibold text-gray-900">{gmChurnRisk}</span>
-                  </div>
-                )}
-                {gmLastRunAt && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-gray-400 uppercase tracking-widest">Last run</span>
-                    <span className="text-xs text-gray-500">
-                      {(() => {
-                        const diff = Date.now() - new Date(gmLastRunAt).getTime()
-                        const m = Math.floor(diff / 60_000)
-                        const h = Math.floor(diff / 3_600_000)
-                        const d = Math.floor(diff / 86_400_000)
-                        if (m < 1) return 'just now'
-                        if (m < 60) return `${m}m ago`
-                        if (h < 24) return `${h}h ago`
-                        return `${d}d ago`
-                      })()}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <button
-                onClick={runScan}
-                disabled={running}
-                className="text-[10px] font-semibold text-white px-2.5 py-1 transition-opacity hover:opacity-80 disabled:opacity-50 flex items-center gap-1"
-                style={{ backgroundColor: '#0063FF' }}
-              >
-                {running && (
-                  <span
-                    className="w-2 h-2 rounded-full border border-white animate-spin"
-                    style={{ borderTopColor: 'transparent' }}
+                  <button
+                    onClick={runScan}
+                    disabled={running}
+                    className="text-[10px] font-semibold text-white px-2.5 py-1 transition-opacity hover:opacity-80 disabled:opacity-50 flex items-center gap-1"
+                    style={{ backgroundColor: '#0063FF' }}
+                  >
+                    {running && (
+                      <span
+                        className="w-2 h-2 rounded-full border border-white animate-spin"
+                        style={{ borderTopColor: 'transparent' }}
+                      />
+                    )}
+                    {running ? 'Running…' : 'Run Analysis'}
+                  </button>
+                </div>
+                {/* GM Chat — fills remaining space */}
+                <div className="flex-1 overflow-hidden">
+                  <GMChat
+                    gymId={data?.gym?.id ?? ''}
+                    isDemo={false}
+                    onTaskCreated={(_taskId) => {
+                      fetchDashboard()
+                    }}
                   />
-                )}
-                {running ? 'Running…' : 'Run Analysis'}
-              </button>
-            </div>
-            {/* GM Chat — fills remaining space */}
-            <div className="flex-1 overflow-hidden">
-              <GMChat
-                gymId={isDemo ? '00000000-0000-0000-0000-000000000001' : (data?.gym?.id ?? '')}
-                isDemo={isDemo}
-                onTaskCreated={(_taskId) => {
-                  fetchDashboard()
-                }}
-              />
-            </div>
+                </div>
+              </>
+            )}
           </div>
         )}
         {/* Agent editor — create or edit */}
@@ -917,17 +926,50 @@ function DashboardContent() {
         onSelectAgent={setSelectedAgentId}
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
-        statsBar={<RetentionScorecard />}
+        statsBar={isDemo ? undefined : <RetentionScorecard />}
         rightPanel={
-          <div className="flex flex-col h-full">
-            <ToDoList
-              items={todoItems}
-              onSelectItem={handleSelectToDoItem}
-            />
-            <div className="border-t border-gray-100">
-              <ActivityFeed />
+          isDemo ? (
+            <div className="flex flex-col h-full">
+              <div className="px-4 py-4 border-b border-gray-100 flex-shrink-0">
+                <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">What the agent did</p>
+                {[
+                  { icon: '→', text: 'Scanned 247 members for attendance patterns', time: '2h ago' },
+                  { icon: '!', text: `Found ${todoItems.length} at-risk signal${todoItems.length !== 1 ? 's' : ''}`, time: '2h ago' },
+                  { icon: '✓', text: `Drafted ${todoItems.length} personal outreach message${todoItems.length !== 1 ? 's' : ''}`, time: '2h ago' },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-start gap-2 mb-3">
+                    <span className="text-gray-400 text-xs w-4 flex-shrink-0 mt-0.5">{item.icon}</span>
+                    <div>
+                      <p className="text-xs text-gray-700">{item.text}</p>
+                      <p className="text-[10px] text-gray-400">{item.time}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex-1" />
+              <div className="p-4 border-t border-gray-100 flex-shrink-0">
+                <p className="text-xs text-gray-500 mb-3 leading-relaxed">This runs every day on your real member data. Connect your gym to see who you&apos;re losing.</p>
+                <a
+                  href="/login"
+                  className="block w-full text-center text-xs font-semibold text-white py-2.5 transition-opacity hover:opacity-80"
+                  style={{ backgroundColor: '#0063FF' }}
+                >
+                  Connect my gym — it&apos;s free →
+                </a>
+                <p className="text-[10px] text-gray-400 mt-2 text-center">PushPress gyms only · No card needed</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex flex-col h-full">
+              <ToDoList
+                items={todoItems}
+                onSelectItem={handleSelectToDoItem}
+              />
+              <div className="border-t border-gray-100">
+                <ActivityFeed />
+              </div>
+            </div>
+          )
         }
         slidePanel={
           selectedAction
