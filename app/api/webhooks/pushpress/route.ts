@@ -91,15 +91,16 @@ async function processWebhookAsync(rawBody: string) {
   console.log(`[webhook] ${eventType} for company=${companyId}`)
 
   // Look up gym by PushPress company ID
-  const { data: gym } = await supabaseAdmin
+  const { data: gym, error: gymErr } = await supabaseAdmin
     .from('gyms')
     .select('id, gym_name, pushpress_api_key, pushpress_company_id')
     .eq('pushpress_company_id', companyId)
     .single()
-    .catch(() => ({ data: null }))
+
+  if (gymErr) console.log(`[webhook] gym lookup: ${gymErr.message} (code=${gymErr.code})`)
 
   // Store the raw event regardless of gym match
-  const { data: webhookEvent } = await supabaseAdmin
+  const { data: webhookEvent, error: insertErr } = await supabaseAdmin
     .from('webhook_events')
     .insert({
       gym_id: gym?.id ?? null,
@@ -109,7 +110,8 @@ async function processWebhookAsync(rawBody: string) {
     })
     .select('id')
     .single()
-    .catch(() => ({ data: null }))
+
+  if (insertErr) console.error(`[webhook] insert failed: ${insertErr.message} (code=${insertErr.code})`)
 
   if (!gym) {
     console.log(`[webhook] no gym for company=${companyId}, event stored`)
