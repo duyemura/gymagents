@@ -217,7 +217,9 @@ function DashboardContent() {
   const searchParams = useSearchParams()
   const isDemoParam = searchParams.get('demo') === 'true'
   const [isSandboxDemo, setIsSandboxDemo] = useState(false)
-  const isDemo = isDemoParam || isSandboxDemo
+  // PLG: authenticated users without a gym also see demo/preview mode
+  const [isPreviewMode, setIsPreviewMode] = useState(false)
+  const isDemo = isDemoParam || isSandboxDemo || isPreviewMode
 
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -313,6 +315,20 @@ function DashboardContent() {
       if (!isDemoParam && res.status === 401) { router.push('/login'); return }
       const json = await res.json()
       if (json.isDemo) setIsSandboxDemo(true)
+
+      // PLG: authenticated user with no gym → switch to preview/demo mode
+      // so they see the product before connecting their API key
+      if (!json.isDemo && !json.gym && !isDemoParam) {
+        setIsPreviewMode(true)
+        // Fetch demo data instead so they see the full demo experience
+        const demoRes = await fetch('/api/demo')
+        if (demoRes.ok) {
+          const demoJson = await demoRes.json()
+          setData(demoJson)
+          return
+        }
+      }
+
       setData(json)
     } catch (e) {
       console.error(e)
@@ -422,7 +438,7 @@ function DashboardContent() {
     )
   }
 
-  if (!isDemo && !data?.gym) { router.push('/connect'); return null }
+  // No longer redirect to /connect — PLG preview mode handles this above
 
   // Use demo agents or real autopilots
   const autopilots = isDemo ? DEMO_AGENTS : (data?.autopilots ?? [])
@@ -891,6 +907,7 @@ function DashboardContent() {
       <AppShell
         isDemo={isDemo}
         isSandboxDemo={isSandboxDemo}
+        isPreviewMode={isPreviewMode}
         gymName={gymName}
         agents={autopilots}
         selectedAgentId={selectedAgentId}

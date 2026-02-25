@@ -72,12 +72,43 @@ export default function ConnectPage() {
 
         <div className="bg-white border border-gray-200 p-8">
           <h1 className="text-2xl font-bold mb-2" style={{ color: '#080808' }}>Connect your gym</h1>
-          <p className="text-gray-500 text-sm mb-8">
-            Takes about 2 minutes. Your API key is encrypted and never shared.
+          <p className="text-gray-500 text-sm mb-6">
+            Takes about 2 minutes. We just need your PushPress API key.
           </p>
 
+          {/* Step-by-step instructions */}
+          <div className="mb-6 p-4 border border-blue-100" style={{ backgroundColor: '#F0F6FF', borderRadius: 4 }}>
+            <p className="text-xs font-semibold text-gray-700 mb-3">How to find your API key:</p>
+            <div className="space-y-2.5">
+              <div className="flex gap-2.5 items-start">
+                <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-xs font-bold text-white" style={{ backgroundColor: '#0063FF', borderRadius: 2 }}>1</span>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Log in to <a href="https://manage.pushpress.com" target="_blank" rel="noopener noreferrer" className="font-semibold underline" style={{ color: '#0063FF' }}>manage.pushpress.com</a>
+                </p>
+              </div>
+              <div className="flex gap-2.5 items-start">
+                <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-xs font-bold text-white" style={{ backgroundColor: '#0063FF', borderRadius: 2 }}>2</span>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Go to <strong>Settings</strong> → <strong>Integrations</strong> → <strong>API Keys</strong>
+                </p>
+              </div>
+              <div className="flex gap-2.5 items-start">
+                <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-xs font-bold text-white" style={{ backgroundColor: '#0063FF', borderRadius: 2 }}>3</span>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Click <strong>Create API Key</strong>, name it &ldquo;GymAgents&rdquo;, and copy the key
+                </p>
+              </div>
+              <div className="flex gap-2.5 items-start">
+                <span className="w-5 h-5 flex items-center justify-center flex-shrink-0 text-xs font-bold text-white" style={{ backgroundColor: '#0063FF', borderRadius: 2 }}>4</span>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  Paste it below and hit connect — that&apos;s it!
+                </p>
+              </div>
+            </div>
+          </div>
+
           {error && (
-            <div className="border border-red-100 p-4 mb-6 text-red-600 text-sm" style={{ backgroundColor: '#FEF2F2' }}>
+            <div className="border border-red-100 p-4 mb-6 text-red-600 text-sm" style={{ backgroundColor: '#FEF2F2', borderRadius: 2 }}>
               {error}
             </div>
           )}
@@ -91,13 +122,10 @@ export default function ConnectPage() {
                 type="text"
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
-                placeholder="sk_live_..."
+                placeholder="Paste your API key here"
                 className="w-full px-4 py-3 border border-gray-200 bg-white font-mono text-sm text-gray-900 placeholder-gray-300 focus:outline-none focus:border-blue-400 transition-colors"
                 required
               />
-              <p className="text-xs text-gray-400 mt-1.5">
-                Found in PushPress → Settings → Integrations → API Keys
-              </p>
             </div>
 
             <button
@@ -119,31 +147,24 @@ export default function ConnectPage() {
             </button>
           </form>
 
-          {/* PushPress info */}
-          <div className="mt-8 pt-6 border-t border-gray-100">
-            <div className="p-4" style={{ backgroundColor: 'rgba(0,99,255,0.06)' }}>
-              <h3 className="font-semibold text-sm mb-1" style={{ color: '#031A3C' }}>
-                Don't have PushPress yet?
-              </h3>
-              <p className="text-sm mb-3 text-gray-600">
-                GymAgents runs on your PushPress data. Free to start — most gyms are live in 20 minutes.
-              </p>
+          {/* Security + PushPress info */}
+          <div className="mt-6 flex flex-col gap-3">
+            <p className="text-center text-xs text-gray-400">
+              Your API key is AES-256 encrypted and never stored in plain text.
+            </p>
+            <div className="text-center">
+              <span className="text-xs text-gray-400">Don&apos;t have PushPress? </span>
               <a
                 href="https://www.pushpress.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-white font-semibold px-4 py-2 text-sm transition-opacity hover:opacity-80"
-                style={{ backgroundColor: '#0063FF' }}
+                className="text-xs font-semibold underline"
+                style={{ color: '#0063FF' }}
               >
-                Get PushPress free →
+                Get it free →
               </a>
             </div>
           </div>
-
-          {/* Security note */}
-          <p className="text-center text-xs text-gray-400 mt-5">
-            🔒 Your API key is AES-256 encrypted and never stored in plain text.
-          </p>
         </div>
       </div>
     </div>

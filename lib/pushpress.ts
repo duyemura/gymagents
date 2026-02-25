@@ -1,5 +1,5 @@
 // Direct PushPress API client (uses fetch instead of SDK to avoid compilation issues)
-const PUSHPRESS_BASE_URL = 'https://api.pushpressdev.com'
+const PUSHPRESS_BASE_URL = 'https://api.pushpress.com/v3'
 
 export function createPushPressClient(apiKey: string, companyId?: string) {
   return {
@@ -7,14 +7,16 @@ export function createPushPressClient(apiKey: string, companyId?: string) {
     companyId: companyId || '',
     async fetch(path: string, options: RequestInit = {}) {
       const url = `${PUSHPRESS_BASE_URL}${path}`
+      const hdrs: Record<string, string> = {
+        'API-KEY': apiKey,
+        'Content-Type': 'application/json',
+      }
+      // Only send company-id header if we have one (single-tenant keys don't need it)
+      if (companyId) hdrs['company-id'] = companyId
+
       const res = await fetch(url, {
         ...options,
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'x-company-id': companyId || '',
-          ...options.headers
-        }
+        headers: { ...hdrs, ...options.headers as Record<string, string> }
       })
       if (!res.ok) {
         const text = await res.text()
@@ -42,18 +44,16 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
     // Try to fetch customers/members
     let members: any[] = []
     try {
-      const response = await client.fetch(`/platform/v1/customers?limit=100&company_id=${companyId}`)
-      members = response?.data || response?.customers || response || []
+      const response = await client.fetch(`/customers?limit=100`)
+      // PushPress returns { data: { resultArray: [...] } }
+      members =
+        response?.data?.resultArray ??
+        response?.data ??
+        response?.resultArray ??
+        (Array.isArray(response) ? response : [])
       if (!Array.isArray(members)) members = []
     } catch (e) {
-      // API may be different, try alternate endpoints
-      try {
-        const response = await client.fetch(`/v1/customers?limit=100`)
-        members = response?.data || response?.customers || response || []
-        if (!Array.isArray(members)) members = []
-      } catch {
-        members = []
-      }
+      members = []
     }
 
     if (members.length === 0) {
@@ -73,9 +73,13 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
         let checkins: any[] = []
         try {
           const checkinResp = await client.fetch(
-            `/platform/v1/checkins?customer_id=${member.id}&limit=50&company_id=${companyId}`
+            `/checkins/class?customer=${member.id}&limit=50`
           )
-          checkins = checkinResp?.data || checkinResp || []
+          // PushPress returns { data: { resultArray: [...] } }
+          checkins =
+            checkinResp?.data?.resultArray ??
+            checkinResp?.data ??
+            (Array.isArray(checkinResp) ? checkinResp : [])
           if (!Array.isArray(checkins)) checkins = []
         } catch { checkins = [] }
 
@@ -124,23 +128,78 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
 }
 
 export async function getMemberStats(client: ReturnType<typeof createPushPressClient>, companyId: string) {
+  let gymName = 'Your Gym'
+  let resolvedCompanyId = companyId || ''
+  let totalMembers = 0
+
+  // ── Step 1: Try /company endpoint first ──────────────────────────────────────
   try {
-    // Try various endpoints to get member count
-    const response = await client.fetch(`/platform/v1/customers?limit=1&company_id=${companyId}`)
-    const total = response?.total || response?.meta?.total || 0
-    const gymName = response?.company?.name || 'Your Gym'
-    // Capture the company ID from the response if PushPress returns it
-    const resolvedCompanyId: string =
-      response?.company?.id ||
-      response?.company_id ||
-      response?.companyId ||
-      companyId ||
-      ''
-    return { totalMembers: total || 50, gymName, companyId: resolvedCompanyId }
-  } catch {
-    // If we get a 401/403, the API key format might be wrong but it's still valid in structure
-    return { totalMembers: 0, gymName: 'Your Gym', companyId }
+    const company = await client.fetch('/company')
+    console.log('[pushpress] /company raw response:', JSON.stringify(company).slice(0, 800))
+
+    // The API might return { data: { ... } } or the Company object directly
+    const companyObj = company?.data ?? company
+    if (companyObj?.name) gymName = companyObj.name
+    if (companyObj?.id) resolvedCompanyId = companyObj.id
+    console.log('[pushpress] /company parsed → name:', gymName, 'id:', resolvedCompanyId)
+  } catch (err: any) {
+    console.error('[pushpress] /company failed:', err.message)
   }
+
+  // ── Step 2: Get customers (member count + fallback company ID) ───────────────
+  // PushPress returns { data: { resultArray: [Customer, ...] } }
+  try {
+    const response = await client.fetch('/customers?limit=100')
+    console.log('[pushpress] /customers raw response keys:', JSON.stringify(Object.keys(response || {})))
+
+    // PushPress list endpoints return { data: { resultArray: [...] } }
+    const customers: any[] =
+      response?.data?.resultArray ??   // standard PushPress shape
+      response?.data ??                // fallback: { data: [...] }
+      response?.resultArray ??         // fallback: { resultArray: [...] }
+      (Array.isArray(response) ? response : [])  // fallback: bare array
+
+    totalMembers = Array.isArray(customers) ? customers.length : 0
+    console.log('[pushpress] /customers found', totalMembers, 'members')
+
+    // ── Fallback: extract companyId from first customer if /company didn't return it
+    if (!resolvedCompanyId && Array.isArray(customers) && customers.length > 0) {
+      const firstCustomer = customers[0]
+      resolvedCompanyId = firstCustomer?.companyId || firstCustomer?.company_id || ''
+      console.log('[pushpress] Extracted companyId from customer:', resolvedCompanyId)
+    }
+  } catch (err: any) {
+    console.error('[pushpress] /customers failed:', err.message)
+  }
+
+  // ── Step 3: If we got a companyId from customers but no gym name, retry /company ─
+  if (gymName === 'Your Gym' && resolvedCompanyId) {
+    try {
+      console.log('[pushpress] Retrying /company with company-id header:', resolvedCompanyId)
+      const url = `${PUSHPRESS_BASE_URL}/company`
+      const res = await fetch(url, {
+        headers: {
+          'API-KEY': client.apiKey,
+          'company-id': resolvedCompanyId,
+          'Content-Type': 'application/json',
+        },
+      })
+      if (res.ok) {
+        const company = await res.json()
+        console.log('[pushpress] /company retry response:', JSON.stringify(company).slice(0, 800))
+        const companyObj = company?.data ?? company
+        if (companyObj?.name) gymName = companyObj.name
+        if (companyObj?.id) resolvedCompanyId = companyObj.id
+      } else {
+        console.error('[pushpress] /company retry failed:', res.status, await res.text().catch(() => ''))
+      }
+    } catch (err: any) {
+      console.error('[pushpress] /company retry error:', err.message)
+    }
+  }
+
+  console.log('[pushpress] getMemberStats final →', { gymName, resolvedCompanyId, totalMembers })
+  return { totalMembers, gymName, companyId: resolvedCompanyId }
 }
 
 function getLastCheckinDate(checkins: any[]): Date | null {

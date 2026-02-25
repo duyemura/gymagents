@@ -87,7 +87,15 @@ async function processWebhookAsync(rawBody: string) {
     return
   }
 
-  const companyId = payload.companyId ?? payload.company_id ?? ''
+  // PushPress puts company ID inside the data object, not at the top level
+  // data.companyId for customers/enrollments/appointments, data.company for checkins/classes
+  const eventData = (payload.data ?? payload.object ?? {}) as Record<string, unknown>
+  const companyId =
+    (eventData.companyId as string) ??
+    (eventData.company as string) ??
+    payload.companyId ??
+    payload.company_id ??
+    ''
   console.log(`[webhook] ${eventType} for company=${companyId}`)
 
   // Look up gym by PushPress company ID
@@ -160,7 +168,7 @@ async function processWebhookAsync(rawBody: string) {
   console.log(`[webhook] found ${subs?.length ?? 0} subscriptions for ${eventType}`)
 
   let runsTriggered = 0
-  const eventData = (payload.data ?? payload.object ?? payload) as Record<string, unknown>
+  // eventData already extracted above for companyId; reuse it for agent runs
 
   for (const sub of subs ?? []) {
     const autopilot = (sub as any).autopilots

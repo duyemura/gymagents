@@ -48,15 +48,34 @@ async function ppFetch<T>(
 // ──────────────────────────────────────────────────────────────────────────────
 
 export const GYMAGENTS_WEBHOOK_EVENTS = [
+  // Customer lifecycle
   'customer.created',
+  'customer.details.changed',
   'customer.status.changed',
+  'customer.deleted',
+  // Enrollment lifecycle
   'enrollment.created',
   'enrollment.status.changed',
+  'enrollment.deleted',
+  // Checkins
   'checkin.created',
+  'checkin.updated',
+  'checkin.failed',
+  'checkin.deleted',
+  // Appointments
   'appointment.scheduled',
+  'appointment.rescheduled',
   'appointment.canceled',
+  'appointment.noshowed',
+  // Reservations
   'reservation.created',
+  'reservation.waitlisted',
   'reservation.canceled',
+  'reservation.noshowed',
+  // Classes
+  'class.canceled',
+  // Member app
+  'memberapp.updated',
 ] as const
 
 export type WebhookEventType = (typeof GYMAGENTS_WEBHOOK_EVENTS)[number]

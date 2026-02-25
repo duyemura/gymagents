@@ -15,6 +15,7 @@ type NavSection = 'agents' | 'skills' | 'connectors' | 'settings'
 interface AppShellProps {
   isDemo: boolean
   isSandboxDemo: boolean
+  isPreviewMode?: boolean   // authenticated user without a gym (PLG)
   gymName: string
   agents: Agent[]
   selectedAgentId: string | null
@@ -78,6 +79,7 @@ const EXTRA_NAV_LINKS = [
 export default function AppShell({
   isDemo,
   isSandboxDemo,
+  isPreviewMode = false,
   gymName,
   agents,
   selectedAgentId,
@@ -144,7 +146,7 @@ export default function AppShell({
                 Exit demo
               </Link>
               <Link
-                href="/login"
+                href={isPreviewMode ? '/connect' : '/login'}
                 className="text-xs font-semibold px-3 py-1.5 transition-opacity hover:opacity-80"
                 style={{ backgroundColor: '#080808', color: '#F4FF78' }}
               >
@@ -162,6 +164,28 @@ export default function AppShell({
           )}
         </div>
       </header>
+
+      {/* Demo upgrade banner — prominent yellow strip below header */}
+      {isDemo && (
+        <div
+          className="flex items-center justify-center gap-4 px-4 py-2.5 flex-shrink-0 z-20"
+          style={{ backgroundColor: '#FFF9C4', borderBottom: '1px solid #F0E68C' }}
+        >
+          <span className="text-xs font-medium text-gray-700">
+            You&apos;re exploring a demo gym.
+          </span>
+          <Link
+            href={isPreviewMode ? '/connect' : '/login'}
+            className="text-xs font-bold px-4 py-1.5 transition-opacity hover:opacity-80 text-white"
+            style={{ backgroundColor: '#0063FF', borderRadius: 2 }}
+          >
+            Connect your PushPress gym →
+          </Link>
+          <span className="text-xs text-gray-400 hidden sm:inline">
+            Free · 2 min setup · No card needed
+          </span>
+        </div>
+      )}
 
       {/* Body row */}
       <div className="flex flex-1 min-h-0 overflow-hidden relative">

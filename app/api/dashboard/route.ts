@@ -92,8 +92,8 @@ export async function GET(req: NextRequest) {
       user: { id: `demo-${sessionId}`, email: 'demo@gymagents.com' },
       gym: {
         id: 'demo-gym',
-        gym_name: 'Iron & Grit CrossFit',
-        member_count: 247,
+        gym_name: 'PushPress East',
+        member_count: 127,
         pushpress_company_id: process.env.PUSHPRESS_COMPANY_ID,
       },
       tier: 'pro',

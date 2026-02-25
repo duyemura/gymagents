@@ -1,31 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect, Suspense } from 'react'
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 function HomeContent() {
   const searchParams = useSearchParams()
   const demoExpired = searchParams.get('demo_expired') === '1'
-  const [email, setEmail] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [sent, setSent] = useState(false)
-  const [demoLoading, setDemoLoading] = useState(false) // kept for compat, not used
-
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!email) return
-    setLoading(true)
-    try {
-      const res = await fetch('/api/auth/magic-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      })
-      if (res.ok) setSent(true)
-    } catch {}
-    setLoading(false)
-  }
 
   const handleDemoClick = () => {
     window.location.href = '/demo'
@@ -58,11 +39,11 @@ function HomeContent() {
           <div className="flex items-center gap-5">
             <Link href="/login" className="text-xs text-gray-400 hover:text-gray-700 transition-colors">Log in</Link>
             <Link
-              href="/login"
+              href="/demo"
               className="text-xs font-semibold text-white px-3 py-1.5  transition-colors"
               style={{ backgroundColor: '#0063FF' }}
             >
-              Start free →
+              Live demo →
             </Link>
           </div>
         </div>
@@ -87,44 +68,25 @@ function HomeContent() {
             CrossFit · BJJ · Yoga · Spin · Pilates · Functional fitness
           </p>
 
-          {sent ? (
-            <div className="border-l-2 pl-4 py-2 mb-6" style={{ borderColor: '#0063FF' }}>
-              <p className="text-sm font-medium text-gray-900">Check your inbox</p>
-              <p className="text-xs text-gray-500 mt-0.5">We sent a login link to {email}.</p>
-            </div>
-          ) : (
-            <form onSubmit={handleSignup} className="flex flex-col sm:flex-row gap-2 max-w-sm mb-4">
-              <input
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="Your email"
-                className="flex-1 px-3 py-2.5 border border-gray-200  text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="font-semibold px-4 py-2.5  transition-colors text-white text-sm disabled:opacity-60 whitespace-nowrap"
-                style={{ backgroundColor: '#0063FF' }}
-              >
-                {loading ? 'Sending…' : 'Connect free →'}
-              </button>
-            </form>
-          )}
-
-          <div className="flex items-center gap-4">
-            <p className="text-xs text-gray-400">Free for PushPress gyms. No card needed.</p>
-            <span className="text-gray-200 select-none">·</span>
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
             <button
               onClick={handleDemoClick}
-              disabled={demoLoading}
-              className="text-xs font-medium transition-colors disabled:opacity-60 bg-transparent border-0 cursor-pointer p-0"
-              style={{ color: '#0063FF' }}
+              className="font-semibold px-6 py-3 transition-colors text-white text-sm whitespace-nowrap"
+              style={{ backgroundColor: '#0063FF' }}
             >
-              {demoLoading ? 'Loading…' : 'Try demo →'}
+              See a live demo →
             </button>
+            <Link
+              href="/login"
+              className="font-semibold px-6 py-3 transition-colors text-gray-700 text-sm whitespace-nowrap border border-gray-200 bg-white hover:bg-gray-50 text-center"
+            >
+              Connect my gym
+            </Link>
           </div>
+
+          <p className="text-xs text-gray-400">
+            See it work on a real gym — no signup needed. Takes 30 seconds.
+          </p>
         </div>
       </section>
 
@@ -362,22 +324,21 @@ function HomeContent() {
       {/* Final CTA */}
       <section className="border-t border-gray-100 px-6 py-16 text-center" style={{ backgroundColor: '#031A3C' }}>
         <div className="max-w-md mx-auto">
-          <h2 className="text-2xl font-semibold text-white mb-3 tracking-tight">Start keeping more members today.</h2>
-          <p className="text-sm text-blue-200 mb-8">Connect your PushPress gym in 2 minutes. Your churn watcher starts running immediately — free.</p>
+          <h2 className="text-2xl font-semibold text-white mb-3 tracking-tight">See it in action in 30 seconds.</h2>
+          <p className="text-sm text-blue-200 mb-8">Watch the agent scan a real gym, flag at-risk members, and draft messages — then connect your own gym when you&apos;re ready.</p>
           <div className="flex flex-col items-center gap-3">
-            <Link
-              href="/login"
-              className="font-semibold px-6 py-3  transition-colors text-sm text-gray-900 bg-white hover:bg-gray-50"
-            >
-              Connect My Gym — Free →
-            </Link>
             <button
               onClick={handleDemoClick}
-              disabled={demoLoading}
-              className="text-xs font-medium text-blue-300 hover:text-white transition-colors disabled:opacity-60 bg-transparent border-0 cursor-pointer"
+              className="font-semibold px-6 py-3 transition-colors text-sm bg-white hover:bg-gray-50 text-gray-900 border-0 cursor-pointer"
             >
-              {demoLoading ? 'Loading…' : 'or try a live demo first →'}
+              See a live demo →
             </button>
+            <Link
+              href="/login"
+              className="text-xs font-medium text-blue-300 hover:text-white transition-colors"
+            >
+              Already have an API key? Connect your gym →
+            </Link>
           </div>
         </div>
       </section>

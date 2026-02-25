@@ -35,14 +35,8 @@ export async function GET(req: NextRequest) {
     // Create session
     const sessionToken = createSessionToken({ id: user.id, email: user.email })
     
-    // Check if gym is connected
-    const { data: gym } = await supabaseAdmin
-      .from('gyms')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
-    
-    const redirectTo = gym ? '/dashboard' : '/connect'
+    // PLG: always land on dashboard — users without a gym see demo data + connect CTA
+    const redirectTo = '/dashboard'
     
     const response = NextResponse.redirect(new URL(redirectTo, req.url))
     response.cookies.set('session', sessionToken, {

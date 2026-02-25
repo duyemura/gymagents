@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { supabaseAdmin } from '@/lib/supabase'
 
 /** GET /api/workflows?gymId=xxx — list templates (system + gym-specific) */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const gymId = searchParams.get('gymId')
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('workflows')
     .select('*')
     .or(`gym_id.is.null${gymId ? `,gym_id.eq.${gymId}` : ''}`)
@@ -31,7 +26,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'name, goal, steps required' }, { status: 400 })
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('workflows')
     .insert({
       gym_id: gymId ?? null,
