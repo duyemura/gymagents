@@ -1,13 +1,8 @@
 export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabase'
 import { startWorkflowRun, tickWorkflows } from '@/lib/workflow-runner'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 /** GET /api/workflow-runs?accountId=xxx&status=active */
 export async function GET(req: NextRequest) {

@@ -58,7 +58,7 @@ export type Database = {
           trial_ends_at?: string | null
         }
       }
-      gyms: {
+      accounts: {
         Row: {
           id: string
           user_id: string
