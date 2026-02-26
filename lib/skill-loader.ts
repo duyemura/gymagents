@@ -17,6 +17,7 @@
 
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import { getMemoriesForPrompt } from './db/memories'
 
 const SKILLS_DIR = join(process.cwd(), 'lib', 'task-skills')
 
@@ -74,12 +75,23 @@ export async function loadSkillPrompt(taskType: string): Promise<string> {
 
 /**
  * Build a full system prompt for conversation evaluation.
- * Combines the skill context with structured output instructions.
+ * Combines the skill context + gym memories + structured output instructions.
+ *
+ * Pass gymId to inject gym-specific memories. Without it, no memories are included
+ * (safe for tests and contexts where DB isn't available).
  */
-export async function buildEvaluationPrompt(taskType: string): Promise<string> {
+export async function buildEvaluationPrompt(
+  taskType: string,
+  opts?: { gymId?: string; memberId?: string },
+): Promise<string> {
   const skillContext = await loadSkillPrompt(taskType)
+  const memories = opts?.gymId
+    ? await loadMemories(opts.gymId, { scope: 'retention', memberId: opts.memberId })
+    : ''
 
-  return `${skillContext}
+  const memoryBlock = memories ? `\n\n${memories}\n` : ''
+
+  return `${skillContext}${memoryBlock}
 
 ---
 
@@ -103,12 +115,20 @@ Respond ONLY with valid JSON (no markdown fences):
 
 /**
  * Build a system prompt for message drafting (used by GMAgent).
- * Combines the skill context with drafting-specific instructions.
+ * Combines the skill context + gym memories + drafting instructions.
  */
-export async function buildDraftingPrompt(taskType: string): Promise<string> {
+export async function buildDraftingPrompt(
+  taskType: string,
+  opts?: { gymId?: string; memberId?: string },
+): Promise<string> {
   const skillContext = await loadSkillPrompt(taskType)
+  const memories = opts?.gymId
+    ? await loadMemories(opts.gymId, { scope: 'retention', memberId: opts.memberId })
+    : ''
 
-  return `${skillContext}
+  const memoryBlock = memories ? `\n\n${memories}\n` : ''
+
+  return `${skillContext}${memoryBlock}
 
 ---
 
@@ -117,4 +137,20 @@ export async function buildDraftingPrompt(taskType: string): Promise<string> {
 Draft a message from the gym to the member. Use the approach guidelines above (specifically Touch 1 for initial outreach). Write in a warm, personal, coach voice — not salesy or corporate.
 
 Return ONLY the message text — no subject line, no explanation, just the message.`
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Memory loading (with graceful fallback — DB errors never break prompt building)
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function loadMemories(
+  gymId: string,
+  opts: { scope?: string; memberId?: string },
+): Promise<string> {
+  try {
+    return await getMemoriesForPrompt(gymId, opts)
+  } catch (err) {
+    console.warn('[skill-loader] Failed to load gym memories:', (err as Error).message)
+    return ''
+  }
 }

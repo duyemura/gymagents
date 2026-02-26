@@ -383,7 +383,7 @@ export class GMAgent extends BaseAgent {
     // Load skill-aware drafting prompt based on insight type
     let system: string
     try {
-      system = await buildDraftingPrompt(insight.type)
+      system = await buildDraftingPrompt(insight.type, { gymId: gymContext.gymId })
     } catch {
       // Fallback if skill loading fails
       system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. Keep messages short (2-4 sentences). No emojis. Use first names.

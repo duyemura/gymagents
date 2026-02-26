@@ -171,7 +171,7 @@ describe('RetentionAgent.handleReply', () => {
       gymId: 'gym-001',
     })
 
-    expect(evaluateSpy).toHaveBeenCalledWith('task-123')
+    expect(evaluateSpy).toHaveBeenCalledWith('task-123', { gymId: 'gym-001' })
   })
 
   it('action=reply: sends email and appends agent reply to conversation', async () => {

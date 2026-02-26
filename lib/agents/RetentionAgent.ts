@@ -55,8 +55,8 @@ export class RetentionAgent extends BaseAgent {
       content: replyContent,
     })
 
-    // Evaluate with full context
-    const evaluation = await this.evaluateTask(taskId)
+    // Evaluate with full context (pass gymId for memory injection)
+    const evaluation = await this.evaluateTask(taskId, { gymId })
 
     // Append agent evaluation/decision to conversation
     await this.deps.db.appendConversation(taskId, {
@@ -147,8 +147,12 @@ export class RetentionAgent extends BaseAgent {
   /**
    * Core reasoning — loads task + full conversation, calls Claude, returns structured decision.
    * Loads the appropriate task-skill prompt based on task_type.
+   * Pass gymId to inject gym-specific memories into the prompt.
    */
-  async evaluateTask(taskId: string): Promise<TaskEvaluation> {
+  async evaluateTask(
+    taskId: string,
+    opts?: { gymId?: string },
+  ): Promise<TaskEvaluation> {
     try {
       const task = await this.deps.db.getTask(taskId)
       const history = await this.deps.db.getConversationHistory(taskId)
@@ -157,11 +161,15 @@ export class RetentionAgent extends BaseAgent {
       const memberName = task?.member_name ?? 'the member'
       const goal = task?.goal ?? 'Re-engage the member'
       const taskType = task?.task_type ?? 'churn_risk'
+      const gymId = opts?.gymId ?? task?.gym_id
 
-      // Load skill-aware system prompt based on task type
+      // Load skill-aware system prompt based on task type (with memories if gymId available)
       let systemPrompt: string
       try {
-        systemPrompt = await buildEvaluationPrompt(taskType)
+        systemPrompt = await buildEvaluationPrompt(taskType, {
+          gymId,
+          memberId: task?.member_email ?? undefined, // member_id would be better, but email is what we have
+        })
       } catch {
         systemPrompt = FALLBACK_SYSTEM_PROMPT
       }
