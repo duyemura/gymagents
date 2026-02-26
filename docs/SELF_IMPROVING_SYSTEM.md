@@ -1,6 +1,6 @@
-# GymAgents Self-Improving System
+# Self-Improving System
 
-_How the system gets smarter with every interaction — and why this is the mechanism by which we escape hardcoded domain logic._
+_How agents get smarter with every interaction — and why this is the core mechanism, not a feature bolted on later._
 
 ---
 
@@ -131,59 +131,211 @@ This is where learning accumulates:
 Designed to be domain-agnostic. No gym-specific fields.
 
 ```sql
--- Freeform knowledge about a connected business
--- Not typed to gym concepts — works for any vertical
-CREATE TABLE business_memories (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  account_id          uuid NOT NULL REFERENCES accounts(id),
-  content         text NOT NULL,         -- freeform: the AI writes this, the AI reads this
-  category_hint   text,                  -- soft label: 'preference' | 'context' | 'pattern'
-                                         -- AI-generated, not enforced — informational only
-  confidence      decimal DEFAULT 0.7,   -- how well-evidenced is this
-  source          text,                  -- 'evaluator' | 'owner_edit' | 'gm_chat' | 'manual'
-  source_task_ids uuid[],
-  created_at      timestamptz DEFAULT now(),
+-- Unified memory store — account context, member facts, cross-business patterns
+-- scope determines what this memory is about and who can read it
+CREATE TABLE memories (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- scope: what this memory is about
+  scope             text NOT NULL,  -- 'account' | 'member' | 'business_type' | 'system'
+
+  -- exactly one scoping field is set, depending on scope:
+  account_id        uuid REFERENCES accounts(id) ON DELETE CASCADE,
+  member_id         text,           -- set for scope='member'; null otherwise
+  business_type_tag text,           -- set for scope='business_type'; freeform, not a FK
+
+  content           text NOT NULL,         -- freeform: the AI writes this, the AI reads this
+  category_hint     text,                  -- soft label: 'preference' | 'context' | 'pattern'
+                                           -- 'business_profile' for the bootstrapped type context
+                                           -- AI-generated, not enforced — informational only
+  confidence        decimal DEFAULT 0.7,
+  source            text,                  -- 'agent' | 'owner_edit' | 'gm_chat' | 'evaluator'
+  source_task_ids   uuid[],
+  privacy_tier      text DEFAULT 'account_private',
+  created_at        timestamptz DEFAULT now(),
   last_confirmed_at timestamptz DEFAULT now(),
-  expires_at      timestamptz            -- null = permanent; set for time-sensitive facts
+  expires_at        timestamptz
 );
 
+-- Indexes
+CREATE INDEX idx_memories_account_scope  ON memories(account_id, scope) WHERE account_id IS NOT NULL;
+CREATE INDEX idx_memories_member         ON memories(account_id, member_id) WHERE member_id IS NOT NULL;
+CREATE INDEX idx_memories_business_type  ON memories(business_type_tag) WHERE business_type_tag IS NOT NULL;
+CREATE INDEX idx_memories_system         ON memories(scope) WHERE scope = 'system';
+
+-- Loading patterns by context:
+--   Analysis run:      scope IN ('account', 'system') WHERE account_id = $accountId
+--   Task execution:    scope IN ('account', 'member', 'system') WHERE account_id = $accountId
+--                      AND (member_id IS NULL OR member_id = $memberId)
+--   Cross-business:    scope = 'business_type' WHERE business_type_tag = $tag
+--
+-- Business profile bootstrap (written by GM Agent on first run):
+--   scope='account', category_hint='business_profile', source='agent'
+--   content: "This is [Name]. Based on their data, this is a CrossFit box..."
+
 -- Pending suggestions from evaluator analysis
--- The type field is AI-generated, not an enforced enum
+-- suggestion_type aligns to output types: memory, skill, rubric, prompt, calibration
 CREATE TABLE improvement_suggestions (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  account_id           uuid REFERENCES accounts(id),  -- null = cross-business
-  suggestion_type  text NOT NULL,   -- AI chooses: 'memory' | 'prompt_update' | 'calibration' |
-                                    -- 'new_skill' | 'timing_pattern' — open set, not enum
-  title            text NOT NULL,
-  description      text NOT NULL,   -- written by AI for the owner to read and evaluate
-  proposed_change  jsonb NOT NULL,  -- structured enough to apply; flexible enough to be general
-  evidence         jsonb NOT NULL,  -- {task_ids, outcome_stats, reasoning, sample_interactions}
-  confidence_score decimal NOT NULL,
-  evidence_strength text NOT NULL,  -- 'strong' | 'moderate' | 'weak'
-  status           text DEFAULT 'pending',
-  source           text NOT NULL,   -- 'post_task_eval' | 'weekly_batch' | 'cross_business' | 'edit_analysis'
-  related_task_ids uuid[],
-  created_at       timestamptz DEFAULT now(),
-  reviewed_at      timestamptz,
-  applied_at       timestamptz
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id        uuid REFERENCES accounts(id),  -- null = cross-business suggestion
+  suggestion_type   text NOT NULL,       -- 'memory' | 'skill' | 'rubric' | 'prompt' | 'calibration'
+  title             text NOT NULL,
+  description       text NOT NULL,       -- written by AI for the owner to read and evaluate
+  proposed_change   jsonb NOT NULL,      -- structured enough to apply; flexible enough to be general
+                                         -- memory: { content, category_hint, confidence }
+                                         -- skill: { applies_when, domain, guidance, sources }
+                                         -- rubric: { criteria[], applies_to_task_types[] }
+                                         -- prompt: { instruction, applies_to_skills[] }
+                                         -- calibration: { current_behavior, suggested_behavior, evidence_summary }
+  evidence          jsonb NOT NULL,      -- { task_ids, outcome_stats, reasoning, sample_count }
+                                         -- NEVER includes message text or PII for cross-business suggestions
+  confidence_score  decimal NOT NULL,    -- 0.0–1.0
+  evidence_strength text NOT NULL,       -- 'strong' | 'moderate' | 'weak'
+  status            text DEFAULT 'pending',  -- 'pending' | 'accepted' | 'dismissed' | 'auto_applied'
+  privacy_tier      text NOT NULL,       -- 'account_private' | 'business_type_shared' | 'system_wide'
+  business_type_tag text,                -- freeform tag for routing cross-business suggestions
+                                         -- e.g. 'crossfit_gym', 'yoga_studio' — not a FK
+  source            text NOT NULL,       -- 'post_task_eval' | 'weekly_batch' | 'cross_business' | 'edit_analysis'
+  related_task_ids  uuid[],
+  auto_apply_eligible boolean DEFAULT false,  -- true if meets trust gradient criteria
+  created_at        timestamptz DEFAULT now(),
+  reviewed_at       timestamptz,
+  applied_at        timestamptz
 );
 
 -- Raw signal: message style + verifiable outcome pair
--- No gym-specific fields — works for any business/member/interaction type
+-- No business-specific fields — works for any business/member/interaction type
+-- This is the source table for all learning. Cross-business analysis reads ONLY from here.
 CREATE TABLE interaction_outcomes (
-  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  account_id           uuid NOT NULL REFERENCES accounts(id),
-  task_id          uuid NOT NULL REFERENCES agent_tasks(id),
-  interaction_type text NOT NULL,     -- AI-generated description, not hardcoded type
-  context_summary  text,              -- AI-authored summary of the situation
-  message_sent     text,              -- what was sent
-  outcome          text,              -- 'engaged' | 'recovered' | 'churned' | 'unresponsive'
-  days_to_outcome  integer,
-  attributed_value decimal,
-  owner_edited     boolean DEFAULT false,
-  edit_summary     text               -- AI-authored summary of what changed and why it might matter
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id        uuid NOT NULL REFERENCES accounts(id),
+  task_id           uuid NOT NULL REFERENCES agent_tasks(id),
+  business_type_tag text,                -- freeform, from account's business profile at time of interaction
+  interaction_type  text NOT NULL,         -- AI-generated description, not hardcoded type
+  context_summary   text,                  -- AI-authored summary (account-private, never crosses tenants)
+  message_sent      text,                  -- what was sent (account-private, never crosses tenants)
+  outcome           text,                  -- 'engaged' | 'recovered' | 'churned' | 'unresponsive'
+  days_to_outcome   integer,
+  attributed_value  decimal,
+  touch_number      integer,               -- which touch in the sequence (1, 2, 3)
+  message_length    integer,               -- char count — safe for cross-tenant analysis
+  sent_at_hour      integer,               -- 0-23, local time — safe for cross-tenant analysis
+  owner_edited      boolean DEFAULT false,
+  edit_summary      text                   -- AI-authored (account-private, never crosses tenants)
+);
+
+-- Accepted rubrics — evaluation criteria used by the evaluator
+CREATE TABLE evaluation_rubrics (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  account_id        uuid REFERENCES accounts(id),  -- null = system-wide rubric
+  business_type_tag text,                           -- null = account-specific
+  name              text NOT NULL,
+  criteria          jsonb NOT NULL,         -- [{ name, description, weight }]
+  applies_to        text[],                 -- task types or skill names this rubric applies to
+                                            -- empty = general rubric (applies to all)
+  source_suggestion_id uuid REFERENCES improvement_suggestions(id),
+  active            boolean DEFAULT true,
+  created_at        timestamptz DEFAULT now()
 );
 ```
+
+### Cross-Tenant Privacy Boundary
+
+Not all knowledge is equal. Some is deeply private (owner's personal details, member facts). Some is structurally useful across similar businesses. The system must enforce a hard boundary between these tiers.
+
+| Tier | Crosses tenants? | What belongs here | Examples |
+|---|---|---|---|
+| **Account-private** | Never — hard rule | Owner preferences, member-specific facts, message content, edit diffs, personal information | "Dan has a daughter", "Sarah was injured in December", "Owner signs off as Coach Mike", all `member_id`-scoped memories |
+| **Business-type-shared** | Yes, within same `business_type_tag` | Cross-business patterns tagged with a `business_type_tag` (e.g. `'crossfit_gym'`). Routed to accounts whose bootstrapped business profile matches the tag. Requires 3+ contributing accounts. | "CrossFit members who miss 2 WODs churn at 3x rate", "Touch 2 with a specific class name gets 2.3x replies for gyms" |
+| **System-wide** | Yes, all accounts | Universal patterns about communication and timing, validated by 5+ accounts across 2+ business types | "Evening sends get 61% same-day response vs 12% morning", "Messages under 3 sentences get 40% more replies" |
+
+**Enforcement rules:**
+
+1. Memories with `source: 'owner'` or `source: 'owner_edit'` → **always account-private**
+2. Memories with any `member_id` set → **always account-private**
+3. Memories with `category_hint: 'preference'` → **always account-private**
+4. Only `interaction_outcomes` rows feed cross-tenant analysis — never raw message text, never member names/emails
+5. Cross-business patterns require `evidence_strength: 'strong'` (3+ contributing accounts) before surfacing
+6. System-wide patterns require 5+ accounts across 2+ `business_type` branches
+7. Cross-business patterns tagged with a `business_type_tag` only surface to accounts whose AI-inferred business profile matches that tag. Matching is done at query time — no FK constraint, no rigid hierarchy.
+
+**What gets anonymized for cross-tenant analysis:**
+
+```
+INCLUDED:  interaction_type, outcome, days_to_outcome, touch_number,
+           message_length, time_of_day_sent, owner_edited (boolean),
+           business_type_tag, attributed_value (rounded to nearest $50)
+
+EXCLUDED:  message_sent, edit_summary, member name/email, account name,
+           any content from memories (all scopes), any context_summary text
+```
+
+### Improvement Output Types
+
+After every evaluation (post-task, weekly batch, or cross-business), the evaluator produces **suggestions** — not changes. Every suggestion needs owner review before it takes effect (unless the owner has opted into auto-apply for that type).
+
+Five distinct output types, each with different effects when accepted:
+
+#### Memory
+
+A fact about this business the agent should remember for future interactions.
+
+- **Effect when saved:** Creates a row in `memories` (scope='account') → injected into all future agent prompts for this account
+- **Examples:** "Send messages after 6pm — morning sends go unopened at this gym", "Owner prefers casual tone, first names only"
+- **Always account-private.** Memories never cross tenants.
+- **Owner action:** Dismiss / Save
+
+#### Skill
+
+A new capability or knowledge reference the agent should have when handling a specific type of situation.
+
+- **Effect when built:** Creates a new skill file (stored in DB, `skills` table) with `applies_when` header, domain guidance, and source references
+- **Examples:** "Zion & Southern Utah Backcountry Logistics" (from Hyperagent), or for us: "Post-Injury Return Protocol — how to handle members coming back from injury", "Seasonal Churn Prevention — pre-emptive outreach before historically high-churn months"
+- **Can be account-specific or system-wide.** Account-specific skills are loaded only for that account. System-wide skills (generated from cross-business patterns) are available to all accounts of the relevant business type.
+- **Owner action:** Dismiss / Quick (auto-generate) / Build (interactive refinement)
+
+#### Rubric
+
+Evaluation criteria for judging agent output quality on a specific type of task.
+
+- **Effect when accepted:** Added to the evaluator's prompt for similar future tasks → the evaluator scores future messages against these criteria
+- **General rubrics** come from `_base.md` (no surveillance language, message length, ends with question, etc.) — these are always active
+- **Task-specific rubrics** are auto-generated from outcomes: "For win-back messages at this gym, the agent should: acknowledge the cancellation without guilt, reference their tenure, mention a specific class they attended"
+- **Examples:** "Multi-artifact creation with heavy web research requires explicit source verification" (from Hyperagent), or for us: "At-risk outreach should never mention the member's absence directly in Touch 1"
+- **Can be account-specific or shared.** Account-specific rubrics capture this owner's quality bar. Shared rubrics capture general best practices validated across accounts.
+- **Owner action:** Dismiss / Accept
+
+#### Prompt
+
+An instruction that modifies how the agent approaches a type of task. More specific than a skill (which is a whole playbook), a prompt is a targeted instruction.
+
+- **Effect when applied:** Appended to the relevant skill file's context for this account (stored as a per-account skill override in `skills` table)
+- **Examples:** "When planning trips for shoulder seasons, proactively verify seasonal road closures" (from Hyperagent), or for us: "Reference the member's last class type by name in the opening line of churn-risk outreach", "For win-back messages, always mention the gym's Saturday community class"
+- **Always account-specific.** Prompts are the mechanism for per-account skill customization.
+- **Owner action:** Dismiss / Apply
+
+#### Calibration
+
+A signal that the system's risk assessment may be miscalibrated for this business.
+
+- **Effect when confirmed:** Adjusts the system's understanding of what "at risk" means for this business. In practice, this creates a memory like "Members at this gym routinely take 2-week breaks — don't flag as at-risk until 21+ days"
+- **Examples:** "Attendance threshold may be too aggressive — 3 members flagged as high risk this week were fine"
+- **Always account-specific.** Each business has its own normal.
+- **Owner action:** Dismiss / Confirm / Remind me later (monitor for more data)
+
+### Trust Gradient for Auto-Apply
+
+Owners shouldn't have to review every suggestion forever. As trust builds, the system earns the right to auto-apply low-risk improvements.
+
+| Level | When available | What auto-applies | What still needs review |
+|---|---|---|---|
+| **Review all** (default) | Always | Nothing | Everything |
+| **Auto-save memories** | After 30 days, opt-in | Memories with `evidence_strength: 'strong'` and `confidence_score >= 0.8` | Skills, rubrics, prompts, calibrations |
+| **Auto-apply proven** | Pro tier, after 60 days, opt-in | Memories + prompts that match patterns already accepted by 3+ similar businesses | New skills, rubrics, calibrations |
+
+This mirrors the autopilot trust gradient (`draft_only → smart → full_auto`). The same owner who trusts autopilot to send messages will likely trust auto-apply for proven improvements. The same owner who reviews every message will want to review every suggestion.
+
+**Weekly digest for auto-applied changes:** When auto-apply is active, the owner gets a weekly email: "Your agent learned 3 things this week" with a summary and one-click undo for each.
 
 ### The Evaluator
 
@@ -202,11 +354,36 @@ You do NOT have domain-specific rules. You reason from the data:
   - Whether the outcome was better or worse than similar past interactions
   - What patterns, if any, this interaction is part of
 
-Generate improvement suggestions when:
+You produce five types of improvements:
+
+1. MEMORY — a fact about this business the agent should remember.
+   Save when: owner edits reveal a preference, a pattern about this business emerges,
+   or the interaction reveals context we didn't have.
+   Example: "This business's clients respond better to evening messages"
+
+2. SKILL — a new capability or knowledge area the agent needs.
+   Save when: the agent encountered a situation no existing skill covers,
+   or a specific domain area needs its own playbook.
+   Example: "Post-injury return protocol — specialized handling for members returning from injury"
+
+3. RUBRIC — evaluation criteria for judging agent quality on this type of task.
+   Save when: outcomes reveal what makes a good vs bad message for this situation.
+   Example: "Win-back messages should acknowledge the cancellation without guilt"
+
+4. PROMPT — a targeted instruction that modifies how the agent approaches tasks.
+   Save when: a specific technique correlates with better outcomes.
+   Example: "Reference the client's last activity by name in the opening line"
+
+5. CALIBRATION — a signal that risk assessment is miscalibrated for this business.
+   Save when: flagged-as-at-risk people turn out fine, or unflagged people churn.
+   Example: "Members here routinely take 2-week breaks — 14-day threshold is too aggressive"
+
+Generate suggestions when:
   - A clear pattern is emerging (even if one data point — flag as 'weak')
   - The outcome was unexpectedly good or bad
   - The owner's edits reveal an implicit preference we didn't know about
   - The interaction reveals something about this business we should remember
+  - The agent handled a situation no existing skill covers well
 
 Do NOT generate suggestions for:
   - Expected outcomes with no new signal
@@ -214,10 +391,10 @@ Do NOT generate suggestions for:
   - Anything involving safety, compliance, or infrastructure
 
 Return a JSON array. Each suggestion must include:
-  - suggestion_type (your categorization — open, not constrained)
+  - suggestion_type: 'memory' | 'skill' | 'rubric' | 'prompt' | 'calibration'
   - title (short, specific, owner-readable)
   - description (what you learned and why it matters)
-  - proposed_change (structured: what to actually change)
+  - proposed_change (structured — see schema per type)
   - confidence_score (0.0–1.0)
   - evidence_strength ('strong' | 'moderate' | 'weak')
   - reasoning (internal — your chain of thought)
@@ -321,28 +498,51 @@ The UI is intentionally not gym-specific. An owner of any business type sees the
 Individual interaction outcomes (labeled, attributed)
              ↓
   Anonymized structural patterns
-  (no PII — interaction_type, message_style, outcome, business_context_tags)
+  (no PII — see Cross-Tenant Privacy Boundary above)
              ↓
   Cross-business pattern detection
   (requires 3+ businesses, monthly cadence)
              ↓
-  Suggestions routed to relevant businesses
+  Patterns tagged with a business_type_tag
+  (e.g. 'crossfit_gym', 'fitness_business', null for system-wide)
+             ↓
+  Suggestions routed to accounts whose business profile matches the tag
   ("CrossFit gyms: October is highest churn month — pre-emptive outreach in September")
              ↓
-  Owner accepts → improves base context for that business type
+  Owner accepts → improves context for that business type
              ↓
   New businesses of that type start with better priors
              ↓
   More businesses → more signal → better patterns
 ```
 
-This is the compound moat. After 6 months with 50 connected businesses:
+### How Business Type Tags Work
+
+Business type is not a rigid taxonomy. It's a **freeform tag** written by the AI when it bootstraps a new account's business profile.
+
+When a new account connects:
+1. The connector pulls basic account data (name, class types, member stats)
+2. A bootstrap LLM call writes a `business_profile` memory: *"This is Iron & Grace Athletics. Based on their data, this is a CrossFit box. Members are athletes, classes are WODs..."*
+3. The GM Agent tags this memory with an inferred `business_type_tag` (e.g. `'crossfit_gym'`)
+4. This tag is also stored on `accounts.business_type_tag` for query purposes
+
+When the cross-business evaluator finds a pattern:
+1. **Tag attribution:** The evaluator decides which tag this pattern belongs to. "Evening sends get more replies" → `null` (system-wide). "Members who miss 2 consecutive sessions churn at 3x" → `'fitness_business'`. "Athletes who skip Open prep WODs churn" → `'crossfit_gym'`.
+2. **Routing:** A `memories` row with `scope='business_type'` and `business_type_tag='crossfit_gym'` surfaces to accounts whose `business_type_tag` matches or is semantically close.
+3. **New account priors:** On first run, the GM Agent reads system-scoped memories and business_type-scoped memories matching the account's inferred tag. A new CrossFit gym immediately benefits from all prior CrossFit patterns.
+4. **Fluid types:** If an account is a CrossFit/yoga hybrid, the business profile memory says so. The agent reads it and reasons accordingly — no taxonomy change needed.
+
+### The Compound Moat
+
+After 6 months with 50 connected businesses:
 - 90,000+ labeled interaction-outcome pairs
 - Calibrated risk thresholds per business type — not our assumptions, evidence
 - Proven message patterns by segment, timing, audience type
-- A new business joining immediately benefits from all of it
+- A new business joining immediately benefits from all prior learning at their type level
 
 No competitor can acquire this without also acquiring the customer relationships. The advantage compounds weekly. And because the architecture is abstract — not gym-specific — this flywheel works equally for the next vertical we enter.
+
+Freeform `business_type_tag` values are what make this scale beyond "50 gyms all learning the same things." A CrossFit gym benefits from patterns tagged `'crossfit_gym'` AND `'fitness_business'` AND system-wide patterns. Each new account with a distinct tag creates a new surface for pattern accumulation — without any schema change.
 
 ---
 
@@ -353,15 +553,16 @@ _No visible changes to owners. Start building the data needed to learn._
 
 - [ ] `interaction_outcomes` table — populate on every task close (AI-authored context summary)
 - [ ] Capture owner edit diffs on manual approval — run through Claude for `edit_summary`
-- [ ] `business_memories` table (schema only — not yet populated automatically)
+- [ ] `memories` table (schema only — not yet populated automatically); `accounts.business_type_tag` column
 - [ ] Log dismissals with optional owner annotation
 - [ ] Ensure task outcomes are reliably attributed before learning from them
 
 ### Phase 2 — Business Memory (2 weeks)
 _Owners can teach the system about their business. Immediate value, no evaluator required._
 
-- [ ] Memory injection into agent context (`buildAgentContext()`)
-- [ ] GM Chat: "remember that my members prefer..." → creates memory immediately
+- [ ] Memory injection into agent context (`buildAgentContext()`) — reads `memories` WHERE scope IN ('account', 'system')
+- [ ] GM Chat: "remember that my members prefer..." → creates memory immediately (scope='account')
+- [ ] Bootstrap call on gym connect: write `business_profile` memory (scope='account', category_hint='business_profile')
 - [ ] Settings UI: view / edit / delete active memories
 - [ ] Memory active confirmation: task context shows "using 3 business memories"
 - [ ] Memory expiry for time-sensitive facts
@@ -434,14 +635,18 @@ Each phase is independently deployable and testable. None requires tearing out t
 
 ## Open Questions
 
-1. **Evaluator cost at scale.** Running Claude on every task close adds inference cost. At scale: Haiku for initial pass, Sonnet only when the task has interesting signal (unexpected outcome, owner edit, pattern candidate).
+1. **Evaluator cost at scale.** Running Claude on every task close adds inference cost. At scale: Haiku for initial pass, Sonnet only when the task has interesting signal (unexpected outcome, owner edit, pattern candidate). Budget: ~$0.01 per evaluation (Haiku), ~$0.05 per deep evaluation (Sonnet). At 500 accounts × 30 tasks/week = $60-150/month for evaluations.
 
-2. **Memory conflicts.** If two memories contradict each other, resolution strategy needed. Options: recency wins, confidence wins, explicit owner resolution. Confidence decay prevents stale memories from persisting indefinitely.
+2. **Memory conflicts.** If two memories contradict each other, resolution strategy needed. Options: recency wins, confidence wins, explicit owner resolution. Confidence decay prevents stale memories from persisting indefinitely. When the evaluator proposes a memory that conflicts with an existing one, the suggestion should explicitly reference the conflict: "This contradicts an existing memory: [X]. Proposed replacement."
 
-3. **Over-fitting to unusual periods.** Memories accumulated during a seasonal spike or unusual cohort shouldn't permanently alter behavior. All memories need `last_confirmed_at` tracking and confidence decay.
+3. **Over-fitting to unusual periods.** Memories accumulated during a seasonal spike or unusual cohort shouldn't permanently alter behavior. All memories need `last_confirmed_at` tracking and confidence decay. The weekly batch evaluator should check for memories that haven't been confirmed by recent outcomes and flag them for review.
 
-4. **The edit signal is lossy.** We can detect "shortened message," "removed emoji," "changed opening line" — but we can't always infer *why*. Some signal will always be ambiguous. The evaluator should be calibrated to treat edit signal as suggestive, not definitive.
+4. **The edit signal is lossy.** We can detect "shortened message," "removed emoji," "changed opening line" — but we can't always infer *why*. Some signal will always be ambiguous. The evaluator should be calibrated to treat edit signal as suggestive, not definitive. Three consistent edits = weak. Five = moderate. Eight = strong.
 
-5. **Cross-business learning needs scale first.** The flywheel argument requires 10–15 businesses minimum before cross-business patterns are statistically meaningful. Before that threshold: gym-specific learning only, which is still valuable. Don't over-promise the network effect until it exists.
+5. **Cross-business learning without rigid types.** The flywheel uses freeform `business_type_tag` values rather than a rigid hierarchy. This means pattern density per tag matters — 5 accounts tagged `crossfit_gym` is enough for useful patterns. Semantic clustering (embedding similarity across business profiles) can improve routing as scale grows, but tags are sufficient for early stages.
 
-6. **The evaluator evaluating the evaluator.** Suggestion quality degrades if the evaluator prompt is poorly calibrated. This is a meta-learning problem — we need a way to measure whether accepted suggestions actually produced better outcomes, and feed that back into evaluator calibration. Phase 5's A/B testing is the initial mechanism. Long-term, this is a deeper challenge.
+6. **The evaluator evaluating the evaluator.** Suggestion quality degrades if the evaluator prompt is poorly calibrated. Track: acceptance rate (what % of suggestions get accepted), outcome delta (do accepted suggestions actually improve outcomes), and false positive rate (how many dismissed suggestions had "strong" confidence). Feed these metrics back into evaluator prompt tuning monthly.
+
+7. **Cross-tenant skill sharing.** When the evaluator generates a skill suggestion from cross-business patterns, it could be useful across tenants — but the content might contain patterns learned from private interactions. The skill must be generated from anonymized structural patterns only, never from message content. The generating prompt should explicitly say: "You are writing a skill for other businesses. Do not reference any specific business, person, or message content."
+
+8. **Rubric proliferation.** Without pruning, the system will accumulate rubrics that become contradictory or stale. Rubrics need an effectiveness score: if a rubric's criteria don't correlate with better outcomes after 30 days, flag it for review or auto-deactivate.

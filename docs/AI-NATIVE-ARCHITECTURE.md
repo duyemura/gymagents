@@ -524,6 +524,69 @@ Phase E: Two-phase data loading (can run parallel with A + B)
   ├── Wire task execution: read dataNeeds → call forTask() → pass TaskContext
   └── Remove direct ppGet calls from agent layer
 
+Phase F: Unified memory layer + business context bootstrap (can run parallel with A-E)
+  ├── Migration 010: rename account_memories → memories, add scope column
+  ├── Add interaction_outcomes, improvement_suggestions, evaluation_rubrics tables
+  ├── Add accounts.business_type_tag (freeform, AI-inferred)
+  ├── Bootstrap call: on gym connect, write 'business_profile' memory from account data
+  ├── lib/context/base.md — move hardcoded base prompts out of agent classes
+  ├── BaseAgent loads base.md + account memories (includes business_profile)
+  └── GMAgent: on first analysis run, update/refine the business_profile memory
+
+---
+
+## The 8-Layer Prompt Stack
+
+Every agent call assembles context from eight layers in order. This is the mechanism by which the system works for any business without business-type-specific code.
+
+```
+The 8-Layer Prompt Stack
+────────────────────────
+Layer 1:  Base context          lib/context/base.md — what the system is, what agents do
+                                Abstract: no business-type-specific content
+
+Layer 2:  Connector description What data is available from this account's connector
+                                and what it means (e.g. "a check-in = attending a class")
+
+Layer 3:  Business profile      memories WHERE scope='account' AND category_hint='business_profile'
+                                AI-written on first run: vocabulary, norms, retention signals
+                                for THIS specific account. Gets richer over time.
+
+Layer 4:  Account memories      All other memories WHERE scope='account'
+                                Owner preferences, past outcomes, calibrations
+
+Layer 5:  Member memories       memories WHERE scope='member' AND member_id=$memberId
+                                Member-specific facts (injury history, preferences, etc.)
+
+Layer 6:  Skill file            Loaded based on task type / goal
+
+Layer 7:  Task context          This specific task: goal, member data, conversation history
+
+Layer 8:  Conversation          Recent turns for reply/follow-up tasks
+────────────────────────
+Layers 1-5 are loaded by BaseAgent from DB.
+Layers 6-8 are assembled per task by the executing agent.
+Layer 3 is the business type context — not a rigid type, just a memory the AI writes.
+```
+
+**Layer 1 is a static file, not a DB row.** Base prompts that previously lived hardcoded in agent classes move to `lib/context/base.md`. This file is domain-agnostic — it describes the system's purpose and agent capabilities without mentioning gyms, check-ins, or any vertical-specific concept.
+
+---
+
+## Business Context Is a Memory, Not a Type
+
+The system has no concept of "this is a gym" or "this is a CrossFit box" at the code level.
+
+When a new account connects, the GM Agent runs a bootstrap pass and writes a `business_profile` memory:
+
+> "This is Iron & Grace Athletics. Based on class naming patterns and check-in frequency, this is a CrossFit box. Members are called athletes. Classes are WODs. Typical training frequency is 4-5x/week, so 10+ days of absence is an early risk signal. Community is the product — absence often reflects social disconnection, not fitness lapse."
+
+This memory is loaded in Layer 3 of every prompt. The AI reads it and reasons accordingly. No code branch, no enum, no type table.
+
+A gym that does CrossFit + yoga? The profile says both. A restaurant using the same system? The profile describes covers, reservations, and repeat guests. The code doesn't change — only the profile.
+
+**New verticals cost zero code.** They cost one bootstrap call and a good connector.
+
 ---
 
 ## Cost Considerations
@@ -554,6 +617,7 @@ Before writing or merging any new code, verify against this list:
 - [ ] Using `PPCustomer`, `PPCheckin`, or other connector-specific types in the agent layer — these belong only in the connector layer
 - [ ] Hardcoding a message cadence (`day 0, day 3, day 10`) — the AI should decide timing based on context
 - [ ] Creating a constant like `const COACH_VOICE = '...'` — belongs in a skill file or business memory
+- [ ] Adding a `business_type_id` FK or a `business_type_contexts` table — business type is a freeform memory tag (`accounts.business_type_tag`), not a schema constraint
 
 **These are correct to hardcode:**
 - [x] Security: `account_id` scoping, auth checks, encryption
