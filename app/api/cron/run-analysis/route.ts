@@ -3,27 +3,25 @@ export const dynamic = 'force-dynamic'
 /**
  * POST /api/cron/run-analysis
  *
- * Vercel Cron endpoint — runs GMAgent analysis for all connected gyms.
+ * Vercel Cron endpoint — runs GMAgent analysis for all connected accounts.
  * Called every 6 hours by Vercel Cron.
  * Validates CRON_SECRET header before processing.
  *
- * vercel.json:
- * {
- *   "crons": [{ "path": "/api/cron/run-analysis", "schedule": "0 every6h * * *" }]
- * }
+ * For each account:
+ *   1. Build AccountSnapshot via connector (pushpress-platform.ts)
+ *   2. Run GMAgent.runAnalysis() (AI-driven)
+ *   3. Save KPI snapshot + artifact
  *
- * For each gym:
- *   1. Fetch PushPress data via Platform API v1 (accurate field names from OpenAPI spec)
- *   2. Build AccountSnapshot using pushpress-platform.ts mapping functions
- *   3. Run GMAgent.runAnalysis()
- *   4. Save KPI snapshot
+ * This route is infrastructure — it fetches credentials, calls the connector
+ * to build an abstract AccountSnapshot, and delegates analysis to the AI.
+ * No PushPress-specific types or logic live here.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
 import { GMAgent } from '@/lib/agents/GMAgent'
-import type { AccountSnapshot, PaymentEvent } from '@/lib/agents/GMAgent'
+import type { AccountSnapshot } from '@/lib/agents/GMAgent'
 import { createInsightTask } from '@/lib/db/tasks'
 import { saveKPISnapshot, getMonthlyRetentionROI } from '@/lib/db/kpi'
 import { appendSystemEvent } from '@/lib/db/chat'
@@ -33,138 +31,7 @@ import * as dbTasks from '@/lib/db/tasks'
 import { sendEmail } from '@/lib/resend'
 import Anthropic from '@anthropic-ai/sdk'
 import { HAIKU } from '@/lib/models'
-import {
-  ppGet,
-  buildMemberData,
-  PP_PLATFORM_BASE,
-} from '@/lib/pushpress-platform'
-import type {
-  PPCustomer,
-  PPEnrollment,
-  PPCheckin,
-  MemberDataWithFlags,
-} from '@/lib/pushpress-platform'
-
-// ──────────────────────────────────────────────────────────────────────────────
-// buildAccountSnapshot — accurate field mapping via pushpress-platform.ts
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Fetch all PushPress data for a gym and build a AccountSnapshot.
- *
- * Uses the real Platform API v1 endpoints and field names:
- *   GET /customers   → PPCustomer[]  (name is { first, last, nickname })
- *   GET /checkins    → PPCheckin[]   (customer UUID field, timestamp in ms)
- *   GET /enrollments → PPEnrollment[] (status: active|alert|canceled|paused|etc)
- *
- * Auth: API-KEY header (NOT Authorization: Bearer)
- */
-async function buildAccountSnapshot(
-  accountId: string,
-  accountName: string,
-  apiKey: string,
-  companyId?: string,
-  avgMembershipPrice?: number,
-): Promise<AccountSnapshot> {
-  const now = new Date()
-  const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
-  const sixtyDaysAgoMs  = now.getTime() - 60 * 24 * 60 * 60 * 1000
-
-  // Fetch customers, enrollments, and checkins (60-day window) in parallel.
-  // Checkin timestamps are unix ms — convert to ISO for query params.
-  const sixtyDaysAgoSec = Math.floor(sixtyDaysAgoMs / 1000)
-  const nowSec = Math.floor(now.getTime() / 1000)
-
-  const [customers, enrollments, checkins] = await Promise.all([
-    ppGet<PPCustomer>(apiKey, '/customers', {}, companyId),
-    ppGet<PPEnrollment>(apiKey, '/enrollments', {}, companyId),
-    ppGet<PPCheckin>(apiKey, '/checkins', {
-      // The spec uses unix seconds for query params (start/end of class)
-      // but checkin.timestamp itself is unix ms
-      startTimestamp: String(sixtyDaysAgoSec),
-      endTimestamp: String(nowSec),
-    }, companyId),
-  ])
-
-  // Index: customerId → most recent active enrollment
-  // A customer may have multiple enrollments — use the active/alert one first,
-  // fall back to the most recently started.
-  const enrollmentByCustomer = new Map<string, PPEnrollment>()
-  const ACTIVE_PRIORITY: Record<string, number> = {
-    active: 0, alert: 1, pendcancel: 2, paused: 3,
-    pendactivation: 4, completed: 5, canceled: 6,
-  }
-  for (const enr of enrollments) {
-    const existing = enrollmentByCustomer.get(enr.customerId)
-    if (!existing) {
-      enrollmentByCustomer.set(enr.customerId, enr)
-    } else {
-      const existingPriority = ACTIVE_PRIORITY[existing.status] ?? 99
-      const newPriority = ACTIVE_PRIORITY[enr.status] ?? 99
-      if (newPriority < existingPriority) {
-        enrollmentByCustomer.set(enr.customerId, enr)
-      }
-    }
-  }
-
-  // Index: customerId → checkins in 60-day window
-  // Key: checkin.customer is the UUID (NOT customerId)
-  const checkinsByCustomer = new Map<string, PPCheckin[]>()
-  for (const chk of checkins) {
-    const list = checkinsByCustomer.get(chk.customer) ?? []
-    list.push(chk)
-    checkinsByCustomer.set(chk.customer, list)
-  }
-
-  // Build MemberData for each customer
-  // Use gym's avg_membership_price (from settings or PushPress). Falls back to $150.
-  const memberPrice = avgMembershipPrice ?? 150
-  const members: MemberDataWithFlags[] = customers.map(customer => {
-    const enrollment = enrollmentByCustomer.get(customer.id) ?? null
-    const customerCheckins = checkinsByCustomer.get(customer.id) ?? []
-    return buildMemberData(customer, enrollment, customerCheckins, now, memberPrice)
-  })
-
-  // Surface payment_failed insights from 'alert' enrollment status
-  // (alert = payment failed — enrollment is still active but payment is broken)
-  const paymentEvents: PaymentEvent[] = []
-  for (const member of members) {
-    if (member.hasPaymentAlert) {
-      paymentEvents.push({
-        id: `alert-${member.id}`,
-        memberId: member.id,
-        memberName: member.name,
-        memberEmail: member.email,
-        eventType: 'payment_failed',
-        amount: member.monthlyRevenue,
-        failedAt: new Date().toISOString(),
-      })
-    }
-  }
-
-  // Map checkins to CheckinData for the snapshot (recent 30 days only)
-  const recentCheckins = checkins
-    .filter(c => c.timestamp >= thirtyDaysAgoMs)
-    .map(c => ({
-      id: c.id,
-      customerId: c.customer,    // normalise to customerId for internal use
-      timestamp: c.timestamp,
-      className: c.name ?? '',
-      kind: c.kind,
-      role: c.role ?? 'attendee',
-      result: c.result ?? 'success',
-    }))
-
-  return {
-    accountId,
-    accountName,
-    members,
-    recentCheckins,
-    recentLeads: [],
-    paymentEvents,
-    capturedAt: now.toISOString(),
-  }
-}
+import { buildAccountSnapshot } from '@/lib/pushpress-platform'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Simple Claude evaluate helper for cron context
@@ -224,46 +91,46 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  console.log('[run-analysis] Starting gym analysis cron')
+  console.log('[run-analysis] Starting analysis cron')
 
-  // Fetch all connected gyms
-  const { data: accounts, error: gymsError } = await supabaseAdmin
+  // Fetch all connected accounts
+  const { data: accounts, error: accountsError } = await supabaseAdmin
     .from('accounts')
     .select('id, gym_name, pushpress_api_key, pushpress_company_id, avg_membership_price')
     .not('pushpress_api_key', 'is', null)
 
-  if (gymsError) {
-    console.error('[run-analysis] Failed to fetch gyms:', gymsError.message)
-    return NextResponse.json({ error: gymsError.message }, { status: 500 })
+  if (accountsError) {
+    console.error('[run-analysis] Failed to fetch accounts:', accountsError.message)
+    return NextResponse.json({ error: accountsError.message }, { status: 500 })
   }
 
-  let gymsAnalyzed = 0
+  let accountsAnalyzed = 0
   let totalInsights = 0
   let totalTasksCreated = 0
 
   for (const account of accounts ?? []) {
     try {
-      // Decrypt PushPress API key
+      // Decrypt API key
       let apiKey: string
       try {
         apiKey = decrypt(account.pushpress_api_key)
       } catch (err) {
-        console.error(`[run-analysis] Could not decrypt API key for gym ${account.id}:`, err)
+        console.error(`[run-analysis] Could not decrypt API key for account ${account.id}:`, err)
         continue
       }
 
-      // Fetch PushPress data + build snapshot using accurate Platform API v1 types
+      // Build snapshot via connector layer — all PushPress-specific logic lives there
       let snapshot: AccountSnapshot
       try {
         snapshot = await buildAccountSnapshot(
           account.id,
-          account.gym_name ?? 'Gym',
+          account.gym_name ?? 'Business',
           apiKey,
           account.pushpress_company_id ?? undefined,
           account.avg_membership_price ?? undefined,
         )
       } catch (err) {
-        console.error(`[run-analysis] PushPress fetch failed for gym ${account.id}:`, err)
+        console.error(`[run-analysis] Connector fetch failed for account ${account.id}:`, err)
         continue
       }
 
@@ -305,34 +172,34 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       if (result.insights.length > 0) {
         generateAnalysisArtifact(
           account.id,
-          account.gym_name ?? 'Your Gym',
+          account.gym_name ?? 'Your Business',
           result,
           snapshot,
         ).catch(err => {
-          console.warn(`[run-analysis] Artifact generation failed for gym ${account.id}:`, (err as Error).message)
+          console.warn(`[run-analysis] Artifact generation failed for account ${account.id}:`, (err as Error).message)
         })
       }
 
-      gymsAnalyzed++
+      accountsAnalyzed++
       totalInsights += result.insightsFound
       totalTasksCreated += result.tasksCreated
 
       console.log(
-        `[run-analysis] gym=${account.id} insights=${result.insightsFound} tasks=${result.tasksCreated}`
+        `[run-analysis] account=${account.id} insights=${result.insightsFound} tasks=${result.tasksCreated}`
       )
     } catch (err) {
-      console.error(`[run-analysis] Unexpected error for gym ${account.id}:`, err)
-      // Continue to next gym — never abort the whole run
+      console.error(`[run-analysis] Unexpected error for account ${account.id}:`, err)
+      // Continue to next account — never abort the whole run
     }
   }
 
   console.log(
-    `[run-analysis] Done. gymsAnalyzed=${gymsAnalyzed} insights=${totalInsights} tasks=${totalTasksCreated}`
+    `[run-analysis] Done. accountsAnalyzed=${accountsAnalyzed} insights=${totalInsights} tasks=${totalTasksCreated}`
   )
 
   return NextResponse.json({
     ok: true,
-    gymsAnalyzed,
+    accountsAnalyzed,
     totalInsights,
     totalTasksCreated,
   })
@@ -357,16 +224,13 @@ async function generateAnalysisArtifact(
     // Non-fatal
   }
 
-  const priorityToRisk = (p: string) =>
-    p === 'critical' ? 'high' : p === 'high' ? 'high' : p === 'medium' ? 'medium' : 'low'
+  const priorityToRisk = (p: string): 'high' | 'medium' | 'low' =>
+    p === 'critical' || p === 'high' ? 'high' : p === 'medium' ? 'medium' : 'low'
 
-  // Derive member status from insight context — not hardcoded type enum.
-  // The AI assigns types freely, so we check keywords in the type string.
-  const insightToStatus = (type: string) => {
-    if (type.includes('win_back') || type.includes('cancel') || type.includes('churn')) return 'churned' as const
-    if (type.includes('lead') || type.includes('prospect') || type.includes('trial')) return 'new' as const
-    return 'at_risk' as const
-  }
+  // Derive member status from priority — not from type string keywords.
+  // The AI assigns types freely; priority is the reliable, structured signal.
+  const priorityToStatus = (p: string): 'at_risk' | 'escalated' | 'active' =>
+    p === 'critical' ? 'escalated' : p === 'high' || p === 'medium' ? 'at_risk' : 'active'
 
   const artifactData: ResearchSummaryData = {
     accountName,
@@ -374,7 +238,6 @@ async function generateAnalysisArtifact(
     period: monthLabel,
     generatedBy: 'GM Agent',
     stats: {
-      // Count at-risk by priority, not hardcoded type — works with AI-assigned types
       membersAtRisk: result.insights.filter(i => i.priority === 'critical' || i.priority === 'high' || i.priority === 'medium').length,
       membersRetained: roi.membersRetained,
       revenueRetained: roi.revenueRetained,
@@ -385,8 +248,8 @@ async function generateAnalysisArtifact(
     members: result.insights.slice(0, 15).map(insight => ({
       name: insight.memberName ?? 'Unknown',
       email: insight.memberEmail,
-      status: insightToStatus(insight.type),
-      riskLevel: priorityToRisk(insight.priority) as 'high' | 'medium' | 'low',
+      status: priorityToStatus(insight.priority),
+      riskLevel: priorityToRisk(insight.priority),
       detail: insight.detail ?? insight.title,
       membershipValue: undefined,
     })),
@@ -412,7 +275,7 @@ async function generateAnalysisArtifact(
     shareable: true,
   })
 
-  console.log(`[run-analysis] Artifact generated for gym ${accountId}`)
+  console.log(`[run-analysis] Artifact generated for account ${accountId}`)
 }
 
 // Vercel Cron Jobs send GET requests — also keep POST for manual triggers

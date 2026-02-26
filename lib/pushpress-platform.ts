@@ -15,7 +15,7 @@
  *   - Monthly revenue must be supplied separately (from Plan or known price)
  */
 
-import type { MemberData } from './agents/GMAgent'
+import type { MemberData, AccountSnapshot, PaymentEvent } from './agents/GMAgent'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -420,5 +420,120 @@ export function buildMemberData(
     monthlyRevenue,
     customerRole: mapped.customerRole,
     hasPaymentAlert,
+  }
+}
+
+// ── buildAccountSnapshot ─────────────────────────────────────────────────────
+
+/**
+ * Fetch all PushPress data for an account and build an abstract AccountSnapshot.
+ *
+ * This is the PushPress connector's "build snapshot" function. All PushPress-
+ * specific API calls, type mappings, and enrollment priority logic live here
+ * in the connector layer — the cron route just calls this and gets back an
+ * abstract AccountSnapshot that any analysis pipeline can consume.
+ *
+ * Uses Platform API v1 endpoints:
+ *   GET /customers   → PPCustomer[]
+ *   GET /checkins    → PPCheckin[]   (60-day window)
+ *   GET /enrollments → PPEnrollment[]
+ */
+export async function buildAccountSnapshot(
+  accountId: string,
+  accountName: string,
+  apiKey: string,
+  companyId?: string,
+  avgMembershipPrice?: number,
+): Promise<AccountSnapshot> {
+  const now = new Date()
+  const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
+  const sixtyDaysAgoMs  = now.getTime() - 60 * 24 * 60 * 60 * 1000
+
+  // Fetch customers, enrollments, and checkins (60-day window) in parallel
+  const sixtyDaysAgoSec = Math.floor(sixtyDaysAgoMs / 1000)
+  const nowSec = Math.floor(now.getTime() / 1000)
+
+  const [customers, enrollments, checkins] = await Promise.all([
+    ppGet<PPCustomer>(apiKey, '/customers', {}, companyId),
+    ppGet<PPEnrollment>(apiKey, '/enrollments', {}, companyId),
+    ppGet<PPCheckin>(apiKey, '/checkins', {
+      startTimestamp: String(sixtyDaysAgoSec),
+      endTimestamp: String(nowSec),
+    }, companyId),
+  ])
+
+  // Index: customerId → most recent active enrollment
+  // PushPress enrollment status priority — prefer active enrollments over cancelled
+  const enrollmentByCustomer = new Map<string, PPEnrollment>()
+  const ENROLLMENT_PRIORITY: Record<string, number> = {
+    active: 0, alert: 1, pendcancel: 2, paused: 3,
+    pendactivation: 4, completed: 5, canceled: 6,
+  }
+  for (const enr of enrollments) {
+    const existing = enrollmentByCustomer.get(enr.customerId)
+    if (!existing) {
+      enrollmentByCustomer.set(enr.customerId, enr)
+    } else {
+      const existingPriority = ENROLLMENT_PRIORITY[existing.status] ?? 99
+      const newPriority = ENROLLMENT_PRIORITY[enr.status] ?? 99
+      if (newPriority < existingPriority) {
+        enrollmentByCustomer.set(enr.customerId, enr)
+      }
+    }
+  }
+
+  // Index: customerId → checkins in 60-day window
+  const checkinsByCustomer = new Map<string, PPCheckin[]>()
+  for (const chk of checkins) {
+    const list = checkinsByCustomer.get(chk.customer) ?? []
+    list.push(chk)
+    checkinsByCustomer.set(chk.customer, list)
+  }
+
+  // Build MemberData for each customer
+  const memberPrice = avgMembershipPrice ?? 150
+  const members: MemberDataWithFlags[] = customers.map(customer => {
+    const enrollment = enrollmentByCustomer.get(customer.id) ?? null
+    const customerCheckins = checkinsByCustomer.get(customer.id) ?? []
+    return buildMemberData(customer, enrollment, customerCheckins, now, memberPrice)
+  })
+
+  // Surface payment_failed events from 'alert' enrollment status
+  const paymentEvents: PaymentEvent[] = []
+  for (const member of members) {
+    if (member.hasPaymentAlert) {
+      paymentEvents.push({
+        id: `alert-${member.id}`,
+        memberId: member.id,
+        memberName: member.name,
+        memberEmail: member.email,
+        eventType: 'payment_failed',
+        amount: member.monthlyRevenue,
+        failedAt: new Date().toISOString(),
+      })
+    }
+  }
+
+  // Map checkins to abstract CheckinData (recent 30 days only)
+  const recentCheckins = checkins
+    .filter(c => c.timestamp >= thirtyDaysAgoMs)
+    .map(c => ({
+      id: c.id,
+      customerId: c.customer,
+      timestamp: c.timestamp,
+      className: c.name ?? '',
+      kind: c.kind,
+      role: c.role ?? 'attendee',
+      result: c.result ?? 'success',
+    }))
+
+  return {
+    accountId,
+    accountName,
+    members,
+    recentCheckins,
+    recentLeads: [],
+    paymentEvents,
+    capturedAt: now.toISOString(),
   }
 }

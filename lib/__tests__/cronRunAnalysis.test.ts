@@ -114,7 +114,7 @@ describe('POST /api/cron/run-analysis', () => {
 
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body).toHaveProperty('gymsAnalyzed')
+    expect(body).toHaveProperty('accountsAnalyzed')
     expect(body).toHaveProperty('totalInsights')
     expect(body).toHaveProperty('totalTasksCreated')
   })
@@ -133,7 +133,7 @@ describe('POST /api/cron/run-analysis', () => {
 
     expect(res.status).toBe(200)
     // At minimum a numeric count
-    expect(typeof body.gymsAnalyzed).toBe('number')
+    expect(typeof body.accountsAnalyzed).toBe('number')
     expect(typeof body.totalInsights).toBe('number')
     expect(typeof body.totalTasksCreated).toBe('number')
   })
