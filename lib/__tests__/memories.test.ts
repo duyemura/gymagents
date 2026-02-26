@@ -51,7 +51,7 @@ describe('getAccountMemories', () => {
 
     const result = await getAccountMemories(GYM_ID)
 
-    expect(mockFrom).toHaveBeenCalledWith('account_memories')
+    expect(mockFrom).toHaveBeenCalledWith('memories')
     expect(chain.eq).toHaveBeenCalledWith('account_id', GYM_ID)
     expect(chain.eq).toHaveBeenCalledWith('active', true)
     expect(result).toEqual(memories)
@@ -99,7 +99,7 @@ describe('createMemory', () => {
       source: 'owner',
     })
 
-    expect(mockFrom).toHaveBeenCalledWith('account_memories')
+    expect(mockFrom).toHaveBeenCalledWith('memories')
     expect(chain.insert).toHaveBeenCalledWith(
       expect.objectContaining({
         account_id: GYM_ID,

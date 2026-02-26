@@ -11,7 +11,7 @@ import { buildEvaluationPrompt } from '../skill-loader'
 import { createMemory, getAccountMemories } from '../db/memories'
 
 /** Fallback prompt when skill loading fails */
-const FALLBACK_SYSTEM_PROMPT = `You are a retention agent for a gym. Evaluate the conversation and decide the best next action.
+const FALLBACK_SYSTEM_PROMPT = `You are a retention agent for a subscription business. Evaluate the conversation and decide the best next action.
 
 ## Output format
 Respond ONLY with valid JSON (no markdown fences):
@@ -186,7 +186,7 @@ export class RetentionAgent extends BaseAgent {
       const convoLines = history
         .filter(m => m.role !== 'system') // exclude internal system messages
         .map(m => {
-          const label = m.role === 'agent' ? 'GYM' : 'MEMBER'
+          const label = m.role === 'agent' ? 'BUSINESS' : 'MEMBER'
           return `[${label}]: ${m.content}`
         })
         .join('\n\n')

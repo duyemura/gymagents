@@ -47,7 +47,7 @@ export async function getAccountMemories(
   opts: GetMemoriesOpts = {},
 ): Promise<AccountMemory[]> {
   let query = supabaseAdmin
-    .from('account_memories')
+    .from('memories')
     .select('*')
     .eq('account_id', accountId)
     .eq('active', true)
@@ -87,7 +87,7 @@ export async function getAccountMemories(
 
 export async function createMemory(params: CreateMemoryParams): Promise<AccountMemory> {
   const { data, error } = await supabaseAdmin
-    .from('account_memories')
+    .from('memories')
     .insert({
       account_id: params.accountId,
       category: params.category,
@@ -116,7 +116,7 @@ export async function updateMemory(
   updates: Partial<Pick<AccountMemory, 'content' | 'category' | 'importance' | 'scope'>>,
 ): Promise<void> {
   const { error } = await supabaseAdmin
-    .from('account_memories')
+    .from('memories')
     .update({
       ...updates,
       updated_at: new Date().toISOString(),
@@ -134,7 +134,7 @@ export async function updateMemory(
 
 export async function deactivateMemory(memoryId: string): Promise<void> {
   const { error } = await supabaseAdmin
-    .from('account_memories')
+    .from('memories')
     .update({ active: false, updated_at: new Date().toISOString() })
     .eq('id', memoryId)
 

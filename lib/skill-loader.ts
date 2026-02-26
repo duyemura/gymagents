@@ -17,6 +17,7 @@ import { join } from 'path'
 import { getMemoriesForPrompt } from './db/memories'
 
 const SKILLS_DIR = join(process.cwd(), 'lib', 'task-skills')
+const CONTEXT_DIR = join(process.cwd(), 'lib', 'context')
 
 // ── Skill file metadata (parsed from YAML front-matter) ─────────────────────
 
@@ -59,6 +60,26 @@ async function loadFile(filename: string): Promise<string> {
     cache.set(filename, content)
     return content
   } catch {
+    return ''
+  }
+}
+
+/**
+ * Load the base agent context (lib/context/base.md).
+ * This is Layer 1 of every agent prompt — who the agent is and how it works.
+ * Returns empty string gracefully if the file is missing.
+ */
+async function loadBaseContext(): Promise<string> {
+  const cacheKey = '__base_context__'
+  const cached = cache.get(cacheKey)
+  if (cached !== undefined) return cached
+
+  try {
+    const content = await readFile(join(CONTEXT_DIR, 'base.md'), 'utf-8')
+    cache.set(cacheKey, content)
+    return content
+  } catch {
+    cache.set(cacheKey, '')
     return ''
   }
 }
@@ -284,14 +305,18 @@ export async function buildEvaluationPrompt(
   taskType: string,
   opts?: { accountId?: string; memberId?: string },
 ): Promise<string> {
-  const skillContext = await loadSkillPrompt(taskType)
+  const [baseContext, skillContext] = await Promise.all([
+    loadBaseContext(),
+    loadSkillPrompt(taskType),
+  ])
   const memories = opts?.accountId
     ? await loadMemories(opts.accountId, { scope: 'retention', memberId: opts.memberId })
     : ''
 
+  const baseBlock = baseContext ? `${baseContext}\n\n---\n\n` : ''
   const memoryBlock = memories ? `\n\n${memories}\n` : ''
 
-  return `${skillContext}${memoryBlock}
+  return `${baseBlock}${skillContext}${memoryBlock}
 
 ---
 
@@ -322,14 +347,18 @@ export async function buildDraftingPrompt(
   taskType: string,
   opts?: { accountId?: string; memberId?: string },
 ): Promise<string> {
-  const skillContext = await loadSkillPrompt(taskType)
+  const [baseContext, skillContext] = await Promise.all([
+    loadBaseContext(),
+    loadSkillPrompt(taskType),
+  ])
   const memories = opts?.accountId
     ? await loadMemories(opts.accountId, { scope: 'retention', memberId: opts.memberId })
     : ''
 
+  const baseBlock = baseContext ? `${baseContext}\n\n---\n\n` : ''
   const memoryBlock = memories ? `\n\n${memories}\n` : ''
 
-  return `${skillContext}${memoryBlock}
+  return `${baseBlock}${skillContext}${memoryBlock}
 
 ---
 
@@ -362,4 +391,9 @@ async function loadMemories(
 export function _clearCaches(): void {
   cache.clear()
   skillIndex = null
+}
+
+/** Expose for testing: override base context without touching the filesystem */
+export function _setBaseContextForTest(content: string): void {
+  cache.set('__base_context__', content)
 }
