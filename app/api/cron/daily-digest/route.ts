@@ -11,9 +11,9 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { Resend } from 'resend'
 import { getMonthlyRetentionROI } from '@/lib/db/kpi'
 
-const resend = new Resend(process.env.RESEND_API_KEY!)
 
 async function handler(req: NextRequest): Promise<NextResponse> {
+  const resend = new Resend(process.env.RESEND_API_KEY!)
   const authHeader = req.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

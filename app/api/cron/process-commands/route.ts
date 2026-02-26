@@ -25,9 +25,8 @@ import { updateTaskStatus, appendConversation, getAutopilotSendCountToday, DAILY
 import { sendGmailMessage, isGmailConnected } from '@/lib/gmail'
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY!)
-
 async function handler(req: NextRequest): Promise<NextResponse> {
+  const resend = new Resend(process.env.RESEND_API_KEY!)
   // Validate CRON_SECRET — Vercel sends Authorization: Bearer <CRON_SECRET> on GET
   const authHeader = req.headers.get('authorization')
   const expectedSecret = process.env.CRON_SECRET

@@ -5,9 +5,9 @@ import { getSession } from '@/lib/auth'
 import { Resend } from 'resend'
 import { createTask, appendConversation, DEMO_ACCOUNT_ID } from '@/lib/db/tasks'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(req: NextRequest) {
+  const resend = new Resend(process.env.RESEND_API_KEY!)
   const session = await getSession() as any
 
   if (!session?.isDemo) {

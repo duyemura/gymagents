@@ -5,10 +5,10 @@ import { Resend } from 'resend'
 import jwt from 'jsonwebtoken'
 import { supabaseAdmin } from '@/lib/supabase'
 
-const resend = new Resend(process.env.RESEND_API_KEY!)
 const JWT_SECRET = process.env.JWT_SECRET!
 
 export async function POST(req: NextRequest) {
+  const resend = new Resend(process.env.RESEND_API_KEY!)
   try {
     const { email } = await req.json()
     

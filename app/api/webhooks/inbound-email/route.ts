@@ -9,9 +9,6 @@ import * as dbCommands from '@/lib/db/commands'
 import Anthropic from '@anthropic-ai/sdk'
 import { SONNET } from '@/lib/models'
 
-const resend = new Resend(process.env.RESEND_API_KEY!)
-const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-
 /**
  * Inbound email webhook — handles Resend inbound format.
  *
@@ -23,6 +20,8 @@ const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! }
  * Reply-To address format: reply+{taskId}@lunovoria.resend.app
  */
 export async function POST(req: NextRequest) {
+  const resend = new Resend(process.env.RESEND_API_KEY!)
+  const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
   let body: any
   try {
     body = await req.json()

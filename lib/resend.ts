@@ -4,7 +4,14 @@
  */
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY!)
+// Lazy singleton — avoids module-level init crashing Next.js build
+let _resend: Resend | null = null
+const resend = new Proxy({} as Resend, {
+  get(_, prop) {
+    if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY!)
+    return (_resend as any)[prop]
+  },
+})
 
 export interface SendEmailOptions {
   to: string
