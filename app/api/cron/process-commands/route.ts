@@ -23,6 +23,7 @@ import { sendEmail } from '@/lib/resend'
 import { supabaseAdmin } from '@/lib/supabase'
 import { updateTaskStatus, appendConversation, getAutopilotSendCountToday, DAILY_AUTOPILOT_LIMIT } from '@/lib/db/tasks'
 import { sendGmailMessage, isGmailConnected } from '@/lib/gmail'
+import { draftFollowUp } from '@/lib/follow-up-drafter'
 import { Resend } from 'resend'
 
 async function handler(req: NextRequest): Promise<NextResponse> {
@@ -235,12 +236,28 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         ? new Date(Date.now() + nextDays * 24 * 60 * 60 * 1000)
         : undefined
 
-      const firstName = task.member_name?.split(' ')[0] ?? 'there'
-      // TODO: Replace with AI-drafted follow-ups using skill context (Phase 6).
-      // For now, these are generic templates that work across task types.
-      const followUpMessage = touchNumber === 2
-        ? `Hey ${firstName}, I know things change and that's OK. If there's anything we could do differently, I'd love to hear it. No pressure at all.`
-        : `Hey ${firstName}, just wanted you to know the door's always open. If you ever want to come back, we'll be here. Wishing you the best.`
+      // Load conversation history for context
+      const { data: convoRows } = await supabaseAdmin
+        .from('task_conversations')
+        .select('role, content')
+        .eq('task_id', task.id)
+        .order('created_at', { ascending: true })
+
+      const conversationHistory = (convoRows ?? [])
+        .filter((r: any) => r.role === 'agent' || r.role === 'member')
+        .map((r: any) => ({ role: r.role as 'agent' | 'member', content: r.content }))
+
+      const taskCtx = (task.context ?? {}) as Record<string, unknown>
+      const followUpMessage = await draftFollowUp({
+        taskType: task.task_type ?? 'churn_risk',
+        touchNumber,
+        accountId: task.gym_id,
+        memberName: task.member_name ?? 'there',
+        memberEmail: memberEmail,
+        conversationHistory,
+        accountName: (taskCtx.accountName as string) ?? undefined,
+        memberContext: (taskCtx.detail as string) ?? (taskCtx.riskReason as string) ?? undefined,
+      })
 
       try {
         // Send via Gmail if connected, else Resend

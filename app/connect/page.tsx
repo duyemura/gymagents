@@ -26,7 +26,7 @@ export default function ConnectPage() {
         setError(data.error ?? 'Something went wrong — please check your API key and try again.')
       } else {
         setSuccess({ accountName: data.accountName, memberCount: data.memberCount })
-        setTimeout(() => router.push('/dashboard'), 2500)
+        setTimeout(() => router.push('/setup'), 2500)
       }
     } catch {
       setError('Something went wrong — please try again.')
@@ -44,12 +44,12 @@ export default function ConnectPage() {
           </h2>
           <p className="text-gray-500 text-sm mb-6">
             {success.memberCount > 0
-              ? `${success.memberCount} members loaded. Your agents are ready.`
-              : 'Your agents are ready.'}
+              ? `${success.memberCount} members loaded. Let's build your first agent.`
+              : "Connected. Let's build your first agent."}
           </p>
           <div className="flex items-center justify-center gap-2" style={{ color: '#0063FF' }}>
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#0063FF' }} />
-            <span className="text-sm font-medium">Taking you to your dashboard…</span>
+            <span className="text-sm font-medium">Setting up your workspace…</span>
           </div>
         </div>
       </div>
