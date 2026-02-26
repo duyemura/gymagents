@@ -13,7 +13,14 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { AtRiskMember } from './pushpress'
 import { SONNET } from './models'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+// Lazy singleton — avoids module-level init crashing Next.js build
+let _anthropic: Anthropic | null = null
+const anthropic = new Proxy({} as Anthropic, {
+  get(_, prop) {
+    if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+    return (_anthropic as any)[prop]
+  },
+})
 
 // Path to the PP MCP server binary (installed as dep in the Next.js app)
 const PP_MCP_BIN = require.resolve('@pushpress/pushpress/bin/mcp-server.js')

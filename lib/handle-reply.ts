@@ -12,8 +12,21 @@ import Anthropic from '@anthropic-ai/sdk'
 import { Resend } from 'resend'
 import { SONNET } from './models'
 
-const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-const resend = new Resend(process.env.RESEND_API_KEY!)
+// Lazy singletons — avoids module-level init crashing Next.js build
+let _anthropicClient: Anthropic | null = null
+const anthropicClient = new Proxy({} as Anthropic, {
+  get(_, prop) {
+    if (!_anthropicClient) _anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+    return (_anthropicClient as any)[prop]
+  },
+})
+let _resend: Resend | null = null
+const resend = new Proxy({} as Resend, {
+  get(_, prop) {
+    if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY!)
+    return (_resend as any)[prop]
+  },
+})
 
 /**
  * Build real AgentDeps for RetentionAgent — wired to Supabase, Claude, Resend.

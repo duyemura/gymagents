@@ -4,18 +4,20 @@
  * Each workflow_run tracks one member's progress toward a goal.
  */
 
-import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
 import { sendEmail } from './resend'
 import { HAIKU } from './models'
 import { createTask, appendConversation } from './db/tasks'
+import { supabaseAdmin as supabase } from './supabase'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+// Lazy singleton — avoids module-level init crashing Next.js build
+let _anthropic: Anthropic | null = null
+const anthropic = new Proxy({} as Anthropic, {
+  get(_, prop) {
+    if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+    return (_anthropic as any)[prop]
+  },
+})
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
