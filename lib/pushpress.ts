@@ -40,8 +40,13 @@ export interface AtRiskMember {
 }
 
 export async function getAtRiskMembers(client: ReturnType<typeof createPushPressClient>, companyId: string): Promise<AtRiskMember[]> {
+  // Demo mode: return sample data immediately — never call real API
+  if (process.env.DEMO_MODE === 'true') {
+    return getSampleAtRiskMembers()
+  }
+
   try {
-    // Try to fetch customers/members
+    // Fetch customers/members from PushPress
     let members: any[] = []
     try {
       const response = await client.fetch(`/customers?limit=100`)
@@ -58,9 +63,6 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
     }
 
     if (members.length === 0) {
-      if (process.env.DEMO_MODE === 'true') {
-        return getSampleAtRiskMembers()
-      }
       console.warn('[pushpress] getAtRiskMembers: no members returned from API')
       return []
     }
@@ -121,18 +123,12 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
     }
 
     if (atRiskMembers.length === 0) {
-      if (process.env.DEMO_MODE === 'true') {
-        return getSampleAtRiskMembers()
-      }
       return []
     }
 
     return atRiskMembers.sort((a, b) => b.riskScore - a.riskScore).slice(0, 20)
   } catch (error) {
     console.error('[pushpress] getAtRiskMembers error:', error)
-    if (process.env.DEMO_MODE === 'true') {
-      return getSampleAtRiskMembers()
-    }
     return []
   }
 }

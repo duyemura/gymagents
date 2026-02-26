@@ -59,6 +59,7 @@ async function buildGymSnapshot(
   gymName: string,
   apiKey: string,
   companyId?: string,
+  avgMembershipPrice?: number,
 ): Promise<GymSnapshot> {
   const now = new Date()
   const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
@@ -111,12 +112,12 @@ async function buildGymSnapshot(
   }
 
   // Build MemberData for each customer
-  // Monthly revenue: we don't have plan amounts from the API without fetching /plans.
-  // Use a placeholder of 0 — gym owner knows their prices. Future: fetch /plans.
+  // Use gym's avg_membership_price (from settings or PushPress). Falls back to $150.
+  const memberPrice = avgMembershipPrice ?? 150
   const members: MemberDataWithFlags[] = customers.map(customer => {
     const enrollment = enrollmentByCustomer.get(customer.id) ?? null
     const customerCheckins = checkinsByCustomer.get(customer.id) ?? []
-    return buildMemberData(customer, enrollment, customerCheckins, now, 0)
+    return buildMemberData(customer, enrollment, customerCheckins, now, memberPrice)
   })
 
   // Surface payment_failed insights from 'alert' enrollment status
@@ -223,7 +224,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   // Fetch all connected gyms
   const { data: gyms, error: gymsError } = await supabaseAdmin
     .from('gyms')
-    .select('id, gym_name, pushpress_api_key, pushpress_company_id')
+    .select('id, gym_name, pushpress_api_key, pushpress_company_id, avg_membership_price')
     .not('pushpress_api_key', 'is', null)
 
   if (gymsError) {
@@ -254,6 +255,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           gym.gym_name ?? 'Gym',
           apiKey,
           gym.pushpress_company_id ?? undefined,
+          gym.avg_membership_price ?? undefined,
         )
       } catch (err) {
         console.error(`[run-analysis] PushPress fetch failed for gym ${gym.id}:`, err)

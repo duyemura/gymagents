@@ -105,7 +105,8 @@ export async function registerGymAgentsWebhook(
       client, '/webhooks'
     )
     existing = Array.isArray(list) ? list : list.data ?? []
-  } catch {
+  } catch (err) {
+    console.warn('[pushpress-sdk] Failed to list existing webhooks:', (err as Error).message)
     existing = []
   }
 
