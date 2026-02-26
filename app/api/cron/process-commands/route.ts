@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
  *
  * 1. Process pending commands from the command bus
  * 2. Auto-send messages for autopilot tasks that don't require approval
- * 3. Process win-back follow-ups (multi-touch sequences)
+ * 3. Process follow-ups — any task past next_action_at (multi-touch sequences)
  *
  * vercel.json:
  * {
@@ -178,13 +178,13 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // 3. Process win-back follow-ups — tasks past next_action_at with no reply
+    // 3. Process follow-ups — any task past next_action_at with no reply
+    //    Not limited to win_back — any task type can have follow-up sequences.
     let followUpsSent = 0
     const { data: followUpTasks } = await supabaseAdmin
       .from('agent_tasks')
       .select('*')
       .eq('status', 'awaiting_reply')
-      .eq('task_type', 'win_back')
       .not('next_action_at', 'is', null)
       .lt('next_action_at', new Date().toISOString())
       .limit(10)
@@ -225,7 +225,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           outcome: 'churned',
           outcomeReason: 'No response after 3 win-back touches',
         })
-        console.log(`[process-commands] Win-back closed as churned: task ${task.id}`)
+        console.log(`[process-commands] Follow-up sequence complete, closed as churned: task ${task.id}`)
         continue
       }
 
@@ -237,6 +237,8 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         : undefined
 
       const firstName = task.member_name?.split(' ')[0] ?? 'there'
+      // TODO: Replace with AI-drafted follow-ups using skill context (Phase 6).
+      // For now, these are generic templates that work across task types.
       const followUpMessage = touchNumber === 2
         ? `Hey ${firstName}, I know things change and that's OK. If there's anything we could do differently, I'd love to hear it. No pressure at all.`
         : `Hey ${firstName}, just wanted you to know the door's always open. If you ever want to come back, we'll be here. Wishing you the best.`

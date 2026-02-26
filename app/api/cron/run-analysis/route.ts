@@ -32,6 +32,7 @@ import type { ResearchSummaryData } from '@/lib/artifacts/types'
 import * as dbTasks from '@/lib/db/tasks'
 import { sendEmail } from '@/lib/resend'
 import Anthropic from '@anthropic-ai/sdk'
+import { HAIKU } from '@/lib/models'
 import {
   ppGet,
   buildMemberData,
@@ -172,7 +173,7 @@ async function buildGymSnapshot(
 async function claudeEvaluate(system: string, prompt: string): Promise<string> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
   const response = await client.messages.create({
-    model: 'claude-3-5-haiku-20241022',
+    model: HAIKU,
     max_tokens: 512,
     system,
     messages: [{ role: 'user', content: prompt }],
@@ -275,8 +276,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
       // Save KPI snapshot
       const activeMembers = snapshot.members.filter(m => m.status === 'active').length
+      // Count at-risk members by priority (not hardcoded type) — works with AI-assigned types
       const churnRiskCount = result.insights.filter(
-        i => i.type === 'churn_risk' || i.type === 'renewal_at_risk'
+        i => i.priority === 'critical' || i.priority === 'high'
       ).length
       const revenueMtd = snapshot.members
         .filter(m => m.status === 'active')
@@ -358,9 +360,11 @@ async function generateAnalysisArtifact(
   const priorityToRisk = (p: string) =>
     p === 'critical' ? 'high' : p === 'high' ? 'high' : p === 'medium' ? 'medium' : 'low'
 
+  // Derive member status from insight context — not hardcoded type enum.
+  // The AI assigns types freely, so we check keywords in the type string.
   const insightToStatus = (type: string) => {
-    if (type === 'win_back') return 'churned' as const
-    if (type === 'lead_followup' || type === 'lead_going_cold') return 'new' as const
+    if (type.includes('win_back') || type.includes('cancel') || type.includes('churn')) return 'churned' as const
+    if (type.includes('lead') || type.includes('prospect') || type.includes('trial')) return 'new' as const
     return 'at_risk' as const
   }
 
@@ -370,7 +374,8 @@ async function generateAnalysisArtifact(
     period: monthLabel,
     generatedBy: 'GM Agent',
     stats: {
-      membersAtRisk: result.insights.filter(i => i.type === 'churn_risk' || i.type === 'renewal_at_risk').length,
+      // Count at-risk by priority, not hardcoded type — works with AI-assigned types
+      membersAtRisk: result.insights.filter(i => i.priority === 'critical' || i.priority === 'high' || i.priority === 'medium').length,
       membersRetained: roi.membersRetained,
       revenueRetained: roi.revenueRetained,
       messagesSent: roi.messagesSent,

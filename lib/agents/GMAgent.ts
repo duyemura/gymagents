@@ -370,18 +370,18 @@ export class GMAgent extends BaseAgent {
       // Non-fatal
     }
 
-    const system = `You are an AI General Manager analyzing a gym's membership data. Your job is to identify members who need attention — people at risk of churning, payment issues, or any situation where proactive outreach would help.
+    const system = `You are an AI General Manager analyzing a business's client data. Your job is to identify clients who need attention — people at risk of disengaging, payment issues, or any situation where proactive outreach would help retain them.
 
-## Available task types (you can also create new types if none fit):
+## Available approaches (you can also describe new situations if none fit):
 ${skillSummaries}
 
 ## Rules:
-- Only flag members who genuinely need attention — don't create noise
-- Consider each member's full context: visit frequency, tenure, revenue, trends
-- A member visiting 1x/week at a yoga studio is normal; 1x/week at a CrossFit box (where 3-4x is typical) is a drop
+- Only flag people who genuinely need attention — don't create noise
+- Consider each person's full context: visit frequency, tenure, revenue, trends
+- What counts as "normal" varies by business — reason about what's typical for THIS business based on the data patterns you see
 - Payment failures are always critical
-- New members (< 30 days) with no visits need onboarding attention
-- Don't flag members who visited in the last 3 days (they're fine)
+- New clients (< 30 days) with no visits need onboarding attention
+- Don't flag people who visited in the last 3 days (they're active)
 - Sort by priority: critical > high > medium
 
 ## Output
@@ -389,28 +389,28 @@ Respond with ONLY valid JSON (no markdown fences):
 {
   "insights": [
     {
-      "type": "churn_risk | win_back | payment_failed | lead_going_cold | no_show | new_member_onboarding | renewal_at_risk | <any_new_type>",
+      "type": "a short snake_case label describing the situation (e.g. churn_risk, win_back, payment_failed, attendance_drop, new_member_onboarding, or any label that fits)",
       "priority": "critical | high | medium | low",
-      "memberId": "the member's id",
-      "memberName": "the member's name",
-      "memberEmail": "the member's email",
-      "title": "short human-readable title (e.g. 'Sarah hasn\\'t been in 12 days')",
+      "memberId": "the person's id",
+      "memberName": "the person's name",
+      "memberEmail": "the person's email",
+      "title": "short human-readable title (e.g. 'Sarah hasn\\'t visited in 12 days')",
       "detail": "2-3 sentence explanation of why this needs attention",
-      "recommendedAction": "what the gym should do",
+      "recommendedAction": "what the business should do",
       "estimatedImpact": "revenue or engagement at risk (e.g. '$150/mo at risk')"
     }
   ]
 }`
 
-    const prompt = `Gym: ${snapshot.gymName ?? 'Gym'} (${memberSummaries.length} active/paused members)
+    const prompt = `Business: ${snapshot.gymName ?? 'Business'} (${memberSummaries.length} active/paused clients)
 Snapshot captured: ${snapshot.capturedAt}
 
-## Members:
+## Clients:
 ${JSON.stringify(memberSummaries, null, 2)}
 
 ${paymentIssues.length > 0 ? `## Payment Issues:\n${JSON.stringify(paymentIssues, null, 2)}` : ''}
 
-Analyze these members and return the ones who need attention.`
+Analyze these clients and return the ones who need attention.`
 
     try {
       const response = await this.deps.claude.evaluate(system, prompt)
