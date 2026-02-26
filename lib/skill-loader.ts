@@ -109,7 +109,8 @@ Respond ONLY with valid JSON (no markdown fences):
   "outcomeScore": 0-100,
   "resolved": true | false,
   "scoreReason": "one sentence on outcome quality",
-  "outcome": "engaged" | "churned" | "escalated" | "not_applicable"
+  "outcome": "engaged" | "churned" | "escalated" | "not_applicable",
+  "noteworthy": ["short fact about the member worth remembering for future conversations, e.g. 'prefers morning classes', 'recovering from knee injury', 'travels for work in March'"] or []
 }`
 }
 

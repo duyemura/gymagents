@@ -15,6 +15,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// Mock db/memories before importing RetentionAgent
+const mockCreateMemory = vi.fn().mockResolvedValue({ id: 'mem-1' })
+const mockGetGymMemories = vi.fn().mockResolvedValue([])
+vi.mock('../db/memories', () => ({
+  createMemory: (...args: any[]) => mockCreateMemory(...args),
+  getGymMemories: (...args: any[]) => mockGetGymMemories(...args),
+  getMemoriesForPrompt: vi.fn().mockResolvedValue(''),
+}))
+
 import { RetentionAgent } from '../agents/RetentionAgent'
 import type { AgentDeps } from '../agents/BaseAgent'
 import type {
@@ -134,6 +144,11 @@ function makeDeps(overrides: Partial<AgentDeps> = {}): AgentDeps {
     ...(overrides.sms ? { sms: overrides.sms } : {}),
   }
 }
+
+beforeEach(() => {
+  mockCreateMemory.mockClear()
+  mockGetGymMemories.mockClear()
+})
 
 // ─────────────────────────────────────────────────────────────────────────────
 // handleReply tests
@@ -563,5 +578,187 @@ describe('RetentionAgent scenarios', () => {
 
     expect(evaluation.action).toBe('escalate')
     expect(evaluation.resolved).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Working memory — noteworthy fact extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('RetentionAgent working memory', () => {
+  it('saves noteworthy facts as gym memories after evaluation', async () => {
+    const deps = makeDeps({
+      claude: {
+        evaluate: vi.fn().mockResolvedValue(JSON.stringify({
+          reasoning: 'Member mentioned morning preference',
+          action: 'reply',
+          reply: 'Great to hear! We have a 6am class Tuesdays.',
+          outcomeScore: 50,
+          resolved: false,
+          scoreReason: 'Positive engagement',
+          noteworthy: ['prefers morning classes', 'works night shifts'],
+        })),
+      },
+    })
+
+    const agent = new RetentionAgent(deps)
+    await agent.handleReply({
+      taskId: 'task-123',
+      memberEmail: 'dan@example.com',
+      replyContent: 'I can only do mornings since I work nights.',
+      gymId: 'gym-001',
+    })
+
+    // Wait for fire-and-forget promise
+    await new Promise(r => setTimeout(r, 10))
+
+    expect(mockCreateMemory).toHaveBeenCalledTimes(2)
+    expect(mockCreateMemory).toHaveBeenCalledWith(expect.objectContaining({
+      gymId: 'gym-001',
+      category: 'member_fact',
+      content: 'prefers morning classes',
+      source: 'agent',
+      memberId: 'dan@example.com',
+      scope: 'retention',
+    }))
+    expect(mockCreateMemory).toHaveBeenCalledWith(expect.objectContaining({
+      content: 'works night shifts',
+    }))
+  })
+
+  it('does not save noteworthy facts when array is empty', async () => {
+    const deps = makeDeps({
+      claude: {
+        evaluate: vi.fn().mockResolvedValue(JSON.stringify({
+          reasoning: 'Standard reply',
+          action: 'reply',
+          reply: 'What day works for you?',
+          outcomeScore: 40,
+          resolved: false,
+          scoreReason: 'No commitment yet',
+          noteworthy: [],
+        })),
+      },
+    })
+
+    const agent = new RetentionAgent(deps)
+    await agent.handleReply({
+      taskId: 'task-123',
+      memberEmail: 'dan@example.com',
+      replyContent: 'Maybe next week.',
+      gymId: 'gym-001',
+    })
+
+    await new Promise(r => setTimeout(r, 10))
+    expect(mockCreateMemory).not.toHaveBeenCalled()
+  })
+
+  it('deduplicates against existing member memories', async () => {
+    // Existing memory for this member
+    mockGetGymMemories.mockResolvedValue([
+      { id: 'existing-1', content: 'prefers morning classes', category: 'member_fact' },
+    ])
+
+    const deps = makeDeps({
+      claude: {
+        evaluate: vi.fn().mockResolvedValue(JSON.stringify({
+          reasoning: 'Member mentioned mornings again plus new info',
+          action: 'reply',
+          reply: 'See you at 6am!',
+          outcomeScore: 60,
+          resolved: false,
+          scoreReason: 'Good engagement',
+          noteworthy: ['prefers morning classes', 'has a beagle named Max'],
+        })),
+      },
+    })
+
+    const agent = new RetentionAgent(deps)
+    await agent.handleReply({
+      taskId: 'task-123',
+      memberEmail: 'dan@example.com',
+      replyContent: 'Mornings are best! Gotta get home to walk Max.',
+      gymId: 'gym-001',
+    })
+
+    await new Promise(r => setTimeout(r, 10))
+
+    // Should only create the new fact, not the duplicate
+    expect(mockCreateMemory).toHaveBeenCalledTimes(1)
+    expect(mockCreateMemory).toHaveBeenCalledWith(expect.objectContaining({
+      content: 'has a beagle named Max',
+    }))
+  })
+
+  it('parses noteworthy field from Claude JSON response', async () => {
+    const deps = makeDeps({
+      claude: {
+        evaluate: vi.fn().mockResolvedValue(JSON.stringify({
+          reasoning: 'Member shared context',
+          action: 'reply',
+          reply: 'Take care of that knee!',
+          outcomeScore: 50,
+          resolved: false,
+          scoreReason: 'Injury context',
+          noteworthy: ['recovering from knee injury', 'doctor cleared for light exercise'],
+        })),
+      },
+    })
+
+    const agent = new RetentionAgent(deps)
+    const result = await agent.evaluateTask('task-123')
+
+    expect(result.noteworthy).toEqual(['recovering from knee injury', 'doctor cleared for light exercise'])
+  })
+
+  it('handles missing noteworthy field gracefully', async () => {
+    const deps = makeDeps({
+      claude: {
+        evaluate: vi.fn().mockResolvedValue(JSON.stringify({
+          reasoning: 'Standard reply',
+          action: 'reply',
+          reply: 'Hey!',
+          outcomeScore: 40,
+          resolved: false,
+          scoreReason: 'OK',
+        })),
+      },
+    })
+
+    const agent = new RetentionAgent(deps)
+    const result = await agent.evaluateTask('task-123')
+
+    expect(result.noteworthy).toBeUndefined()
+  })
+
+  it('does not block the reply loop if memory saving fails', async () => {
+    mockGetGymMemories.mockRejectedValue(new Error('DB down'))
+
+    const deps = makeDeps({
+      claude: {
+        evaluate: vi.fn().mockResolvedValue(JSON.stringify({
+          reasoning: 'Member shared info',
+          action: 'reply',
+          reply: 'See you soon!',
+          outcomeScore: 50,
+          resolved: false,
+          scoreReason: 'Good',
+          noteworthy: ['travels in March'],
+        })),
+      },
+    })
+
+    const agent = new RetentionAgent(deps)
+
+    // Should not throw — memory saving is fire-and-forget
+    await expect(agent.handleReply({
+      taskId: 'task-123',
+      memberEmail: 'dan@example.com',
+      replyContent: 'Back from vacation soon!',
+      gymId: 'gym-001',
+    })).resolves.toBeUndefined()
+
+    // Email should still be sent
+    expect(deps.mailer.sendEmail).toHaveBeenCalled()
   })
 })

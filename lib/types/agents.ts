@@ -194,6 +194,8 @@ export interface TaskEvaluation {
   resolved: boolean
   scoreReason: string
   outcome?: TaskOutcome
+  /** Notable facts extracted from the conversation (e.g. "prefers morning classes") */
+  noteworthy?: string[]
 }
 
 // ------------------------------------

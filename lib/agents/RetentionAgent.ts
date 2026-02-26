@@ -8,6 +8,7 @@
 import { BaseAgent } from './BaseAgent'
 import type { TaskEvaluation, TaskOutcome } from '../types/agents'
 import { buildEvaluationPrompt } from '../skill-loader'
+import { createMemory, getGymMemories } from '../db/memories'
 
 /** Fallback prompt when skill loading fails */
 const FALLBACK_SYSTEM_PROMPT = `You are a retention agent for a gym. Evaluate the conversation and decide the best next action.
@@ -66,6 +67,13 @@ export class RetentionAgent extends BaseAgent {
       agentName: 'retention',
       evaluation: evaluation as unknown as Record<string, unknown>,
     })
+
+    // Save noteworthy facts as gym memories (fire-and-forget — never block the reply loop)
+    if (evaluation.noteworthy?.length && gymId) {
+      this._saveNoteworthyFacts(gymId, memberEmail, evaluation.noteworthy).catch(err => {
+        console.warn('[RetentionAgent] Failed to save noteworthy facts:', (err as Error).message)
+      })
+    }
 
     // Act on the evaluation
     switch (evaluation.action) {
@@ -227,6 +235,51 @@ Evaluate the conversation and decide the best next action. Return only valid JSO
     })
   }
 
+  /**
+   * Save noteworthy member facts as gym_memories.
+   * Deduplicates against existing memories for this member.
+   */
+  private async _saveNoteworthyFacts(
+    gymId: string,
+    memberId: string,
+    facts: string[],
+  ): Promise<void> {
+    // Load existing member memories for deduplication
+    let existing: string[] = []
+    try {
+      const memories = await getGymMemories(gymId, {
+        memberId,
+        category: 'member_fact',
+      })
+      existing = memories.map(m => m.content.toLowerCase())
+    } catch {
+      // If we can't check for dupes, save anyway
+    }
+
+    for (const fact of facts) {
+      const normalized = fact.trim()
+      if (!normalized || normalized.length < 3) continue
+
+      // Skip if a similar memory already exists
+      const isDupe = existing.some(e =>
+        e === normalized.toLowerCase() ||
+        e.includes(normalized.toLowerCase()) ||
+        normalized.toLowerCase().includes(e)
+      )
+      if (isDupe) continue
+
+      await createMemory({
+        gymId,
+        category: 'member_fact',
+        content: normalized,
+        importance: 3,
+        scope: 'retention',
+        memberId,
+        source: 'agent',
+      })
+    }
+  }
+
   private _parseEvaluation(raw: string): TaskEvaluation {
     try {
       // Try to extract JSON from potentially prose-wrapped response
@@ -243,6 +296,7 @@ Evaluate the conversation and decide the best next action. Return only valid JSO
         resolved: Boolean(parsed.resolved),
         scoreReason: parsed.scoreReason ?? '',
         outcome: parsed.outcome as TaskOutcome | undefined,
+        noteworthy: Array.isArray(parsed.noteworthy) ? parsed.noteworthy.filter((n: unknown) => typeof n === 'string') : undefined,
       }
     } catch {
       return this._fallbackEscalate('Failed to parse AI response')
