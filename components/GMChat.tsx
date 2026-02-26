@@ -29,7 +29,7 @@ export interface QuickAction {
 }
 
 export interface GMChatProps {
-  gymId: string
+  accountId: string
   isDemo: boolean
   initialHistory?: GMChatMessage[]
   onTaskCreated?: (taskId: string) => void
@@ -178,7 +178,7 @@ function MessageBubble({ msg }: { msg: GMChatMessage }) {
 // ── Main GMChat component ─────────────────────────────────────────────────────
 
 const GMChat = forwardRef<GMChatHandle, GMChatProps>(function GMChat({
-  gymId,
+  accountId,
   isDemo,
   initialHistory,
   onTaskCreated,
@@ -240,7 +240,7 @@ const GMChat = forwardRef<GMChatHandle, GMChatProps>(function GMChat({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          gymId,
+          accountId,
           conversationHistory: messages.slice(-10),
         }),
       })
@@ -274,7 +274,7 @@ const GMChat = forwardRef<GMChatHandle, GMChatProps>(function GMChat({
     } finally {
       setIsThinking(false)
     }
-  }, [input, isThinking, gymId, messages, onTaskCreated, onRunAnalysis])
+  }, [input, isThinking, accountId, messages, onTaskCreated, onRunAnalysis])
 
   // Keep ref in sync so useImperativeHandle always calls the latest version
   useEffect(() => { sendMessageRef.current = sendMessage }, [sendMessage])

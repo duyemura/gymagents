@@ -21,7 +21,7 @@ const mockCreateMemory = vi.fn().mockResolvedValue({ id: 'mem-1' })
 const mockGetGymMemories = vi.fn().mockResolvedValue([])
 vi.mock('../db/memories', () => ({
   createMemory: (...args: any[]) => mockCreateMemory(...args),
-  getGymMemories: (...args: any[]) => mockGetGymMemories(...args),
+  getAccountMemories: (...args: any[]) => mockGetGymMemories(...args),
   getMemoriesForPrompt: vi.fn().mockResolvedValue(''),
 }))
 
@@ -38,7 +38,7 @@ import type {
 
 const makeTask = (overrides: Partial<AgentTask> = {}): AgentTask => ({
   id: 'task-123',
-  gym_id: 'gym-001',
+  account_id: 'gym-001',
   assigned_agent: 'retention',
   created_by_agent: 'retention',
   task_type: 'attendance_drop_intervention',
@@ -47,7 +47,7 @@ const makeTask = (overrides: Partial<AgentTask> = {}): AgentTask => ({
   member_email: 'dan@example.com',
   member_name: 'Dan',
   goal: 'Re-engage member who has dropped attendance',
-  context: { gymName: 'Iron & Grit CrossFit' },
+  context: { accountName: 'Iron & Grit CrossFit' },
   status: 'awaiting_reply',
   next_action_at: null,
   requires_approval: false,
@@ -70,7 +70,7 @@ const makeConversationMsg = (
 ): TaskConversationMessage => ({
   id: `msg-${Math.random().toString(36).slice(2)}`,
   task_id: 'task-123',
-  gym_id: 'gym-001',
+  account_id: 'gym-001',
   role,
   content,
   agent_name: role === 'agent' ? 'retention' : null,
@@ -80,7 +80,7 @@ const makeConversationMsg = (
 
 const makeOutboundMessage = (overrides: Partial<OutboundMessage> = {}): OutboundMessage => ({
   id: 'msg-out-001',
-  gym_id: 'gym-001',
+  account_id: 'gym-001',
   task_id: 'task-123',
   sent_by_agent: 'retention',
   channel: 'email',
@@ -163,14 +163,14 @@ describe('RetentionAgent.handleReply', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: "I'll check the schedule.",
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
     // appendConversation should have been called with the member message
     expect(deps.db.appendConversation).toHaveBeenCalledWith('task-123', expect.objectContaining({
       role: 'member',
       content: "I'll check the schedule.",
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     }))
   })
 
@@ -183,10 +183,10 @@ describe('RetentionAgent.handleReply', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: 'Some message',
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
-    expect(evaluateSpy).toHaveBeenCalledWith('task-123', { gymId: 'gym-001' })
+    expect(evaluateSpy).toHaveBeenCalledWith('task-123', { accountId: 'gym-001' })
   })
 
   it('action=reply: sends email and appends agent reply to conversation', async () => {
@@ -208,7 +208,7 @@ describe('RetentionAgent.handleReply', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: "I'll check the schedule.",
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
     // Should send an email
@@ -241,7 +241,7 @@ describe('RetentionAgent.handleReply', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: 'not interested',
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
     expect(deps.db.updateTaskStatus).toHaveBeenCalledWith('task-123', 'resolved', expect.objectContaining({
@@ -269,7 +269,7 @@ describe('RetentionAgent.handleReply', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: "I'll be there Thursday",
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
     expect(deps.db.updateTaskStatus).toHaveBeenCalledWith('task-123', 'resolved', expect.objectContaining({
@@ -295,7 +295,7 @@ describe('RetentionAgent.handleReply', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: "I've been waiting for a callback for weeks",
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
     expect(deps.db.updateTaskStatus).toHaveBeenCalledWith('task-123', 'escalated', expect.objectContaining({
@@ -321,7 +321,7 @@ describe('RetentionAgent.handleReply', () => {
       taskId: 'nonexistent-task',
       memberEmail: 'dan@example.com',
       replyContent: 'Hello',
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })).resolves.toBeUndefined()
 
     expect(deps.db.updateTaskStatus).not.toHaveBeenCalled()
@@ -606,7 +606,7 @@ describe('RetentionAgent working memory', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: 'I can only do mornings since I work nights.',
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
     // Wait for fire-and-forget promise
@@ -614,7 +614,7 @@ describe('RetentionAgent working memory', () => {
 
     expect(mockCreateMemory).toHaveBeenCalledTimes(2)
     expect(mockCreateMemory).toHaveBeenCalledWith(expect.objectContaining({
-      gymId: 'gym-001',
+      accountId: 'gym-001',
       category: 'member_fact',
       content: 'prefers morning classes',
       source: 'agent',
@@ -646,7 +646,7 @@ describe('RetentionAgent working memory', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: 'Maybe next week.',
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
     await new Promise(r => setTimeout(r, 10))
@@ -678,7 +678,7 @@ describe('RetentionAgent working memory', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: 'Mornings are best! Gotta get home to walk Max.',
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })
 
     await new Promise(r => setTimeout(r, 10))
@@ -755,7 +755,7 @@ describe('RetentionAgent working memory', () => {
       taskId: 'task-123',
       memberEmail: 'dan@example.com',
       replyContent: 'Back from vacation soon!',
-      gymId: 'gym-001',
+      accountId: 'gym-001',
     })).resolves.toBeUndefined()
 
     // Email should still be sent

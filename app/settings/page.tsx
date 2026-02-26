@@ -7,7 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 // ── Memory types ────────────────────────────────────────────────────────────
 type MemoryCategory = 'preference' | 'member_fact' | 'gym_context' | 'learned_pattern'
 
-interface GymMemory {
+interface AccountMemory {
   id: string
   category: MemoryCategory
   content: string
@@ -94,7 +94,7 @@ export default function SettingsPage() {
   const [shadowModeActive, setShadowModeActive] = useState(false)
 
   // Memory state
-  const [memories, setMemories] = useState<GymMemory[]>([])
+  const [memories, setMemories] = useState<AccountMemory[]>([])
   const [memoriesLoading, setMemoriesLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [newMemory, setNewMemory] = useState({
@@ -769,11 +769,11 @@ export default function SettingsPage() {
               <div className="bg-gray-50  p-4 text-sm space-y-2">
                 <div className="flex justify-between">
                   <span className="text-gray-400">Gym</span>
-                  <span className="font-medium text-gray-900">{data.gym.gym_name}</span>
+                  <span className="font-medium text-gray-900">{data.account.account_name}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">Members</span>
-                  <span className="font-medium text-gray-900">{data.gym.member_count}</span>
+                  <span className="font-medium text-gray-900">{data.account.member_count}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">Connected</span>

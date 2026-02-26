@@ -23,11 +23,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { GMAgent } from '../agents/GMAgent'
 import type { AgentDeps } from '../agents/BaseAgent'
 import type {
-  GymSnapshot,
+  AccountSnapshot,
   MemberData,
-  GymInsight,
+  AccountInsight,
   PushPressEvent,
-  GymContext,
+  AccountContext,
   CheckinData,
   LeadData,
   PaymentEvent,
@@ -67,9 +67,9 @@ function makeMember(overrides: Partial<MemberData> = {}): MemberData {
   }
 }
 
-function makeSnapshot(overrides: Partial<GymSnapshot> = {}): GymSnapshot {
+function makeSnapshot(overrides: Partial<AccountSnapshot> = {}): AccountSnapshot {
   return {
-    gymId: 'gym-001',
+    accountId: 'gym-001',
     members: [],
     recentCheckins: [],
     recentLeads: [],
@@ -406,7 +406,7 @@ describe('GMAgent.runAnalysis', () => {
     const snapshot = makeSnapshot({ members: [atRiskMember] })
     const result = await agent.runAnalysis('gym-001', snapshot)
 
-    expect(result.gymId).toBe('gym-001')
+    expect(result.accountId).toBe('gym-001')
     expect(result.insightsFound).toBeGreaterThan(0)
     expect(result.insights.length).toBe(result.insightsFound)
   })
@@ -512,7 +512,7 @@ describe('GMAgent.handleEvent', () => {
     expect(createInsightTask).toHaveBeenCalledTimes(1)
     const call = createInsightTask.mock.calls[0][0]
     expect(call.insight.type).toBe('win_back')
-    expect(call.gymId).toBe('gym-001')
+    expect(call.accountId).toBe('gym-001')
   })
 
   it('customer.status.changed (paused) → creates relevant task', async () => {
@@ -583,7 +583,7 @@ describe('GMAgent.draftMessage', () => {
     const deps = makeDeps()
     const agent = new GMAgent(deps)
 
-    const insight: GymInsight = {
+    const insight: AccountInsight = {
       type: 'churn_risk',
       priority: 'high',
       memberId: 'member-001',
@@ -595,9 +595,9 @@ describe('GMAgent.draftMessage', () => {
       estimatedImpact: '$89/mo at risk',
     }
 
-    const gymContext: GymContext = {
-      gymId: 'gym-001',
-      gymName: 'Iron & Grit CrossFit',
+    const gymContext: AccountContext = {
+      accountId: 'gym-001',
+      accountName: 'Iron & Grit CrossFit',
       ownerName: 'Coach Mike',
     }
 
@@ -618,7 +618,7 @@ describe('GMAgent.draftMessage', () => {
     })
     const agent = new GMAgent(deps)
 
-    const insight: GymInsight = {
+    const insight: AccountInsight = {
       type: 'churn_risk',
       priority: 'high',
       memberName: 'Jane Smith',
@@ -629,9 +629,9 @@ describe('GMAgent.draftMessage', () => {
       estimatedImpact: '$89/mo at risk',
     }
 
-    const gymContext: GymContext = {
-      gymId: 'gym-001',
-      gymName: 'Iron & Grit CrossFit',
+    const gymContext: AccountContext = {
+      accountId: 'gym-001',
+      accountName: 'Iron & Grit CrossFit',
       ownerName: 'Coach Mike',
     }
 
@@ -646,7 +646,7 @@ describe('GMAgent.draftMessage', () => {
     const deps = makeDeps()
     const agent = new GMAgent(deps)
 
-    const insight: GymInsight = {
+    const insight: AccountInsight = {
       type: 'payment_failed',
       priority: 'critical',
       memberName: 'Bob Jones',
@@ -657,9 +657,9 @@ describe('GMAgent.draftMessage', () => {
       estimatedImpact: '$89 at risk',
     }
 
-    const gymContext: GymContext = {
-      gymId: 'gym-001',
-      gymName: 'CrossFit Downtown',
+    const gymContext: AccountContext = {
+      accountId: 'gym-001',
+      accountName: 'CrossFit Downtown',
       ownerName: 'Sarah',
     }
 

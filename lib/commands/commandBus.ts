@@ -12,7 +12,7 @@ export type CommandStatus = 'pending' | 'processing' | 'succeeded' | 'failed' | 
 
 export interface AgentCommand {
   id: string
-  gymId: string
+  accountId: string
   commandType: CommandType
   payload: Record<string, unknown>
   issuedByAgent: string
@@ -56,14 +56,14 @@ export class CommandBus {
     commandType: CommandType,
     payload: Record<string, unknown>,
     opts?: {
-      gymId: string
+      accountId: string
       issuedByAgent: string
       taskId?: string
       maxAttempts?: number
     },
   ): Promise<string> {
     const cmd = await this.deps.db.insertCommand({
-      gymId: opts?.gymId ?? '',
+      accountId: opts?.accountId ?? '',
       commandType,
       payload,
       issuedByAgent: opts?.issuedByAgent ?? 'unknown',

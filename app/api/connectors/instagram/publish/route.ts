@@ -16,19 +16,19 @@ export async function POST(req: NextRequest) {
   }
 
   // Look up the gym
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 
   // Fetch Instagram credentials
   const { data: record } = await supabaseAdmin
     .from('gym_instagram')
     .select('access_token, instagram_business_account_id')
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .single()
 
   if (!record) {

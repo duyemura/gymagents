@@ -28,7 +28,7 @@ const MOCK_SCORECARD = {
 
 const MOCK_DASHBOARD = {
   user: { email: 'test@gym.com' },
-  gym: { id: 'gym-1', gym_name: 'Test Gym', member_count: 120, autopilot_enabled: false },
+  gym: { id: 'gym-1', account_name: 'Test Gym', member_count: 120, autopilot_enabled: false },
   tier: 'pro',
   pendingActions: [
     {

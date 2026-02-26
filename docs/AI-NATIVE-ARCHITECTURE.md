@@ -172,6 +172,147 @@ The skill files don't change much — they're already natural language. What cha
 
 ---
 
+## Two-Phase Data Loading: Snapshot vs. TaskContext
+
+Pulling all data eagerly for every operation is wrong at scale — and it's not AI-native. The principle is the same as the rest of the architecture: **the AI declares what it needs, code fetches only that.**
+
+There are two fundamentally different phases, each with a different data model:
+
+### Phase 1 — Analysis (cron, eager)
+
+The GM Agent surveys the whole account to *discover* what needs attention. You can't lazy-load here: you don't know what to look for until you've looked. `AccountSnapshot` is the right model for this phase.
+
+```typescript
+/**
+ * AccountSnapshot — point-in-time survey of an entire account.
+ * Built once per cron run. Used by GMAgent.runAnalysis() to find insights.
+ * Eager: all members, checkins, enrollments, payment events.
+ *
+ * Renamed from GymSnapshot — no gym-specific assumptions.
+ */
+export interface AccountSnapshot {
+  accountId: string
+  accountName?: string
+  members: MemberData[]         // all subscribers + prospects
+  recentCheckins: CheckinData[] // last 30 days
+  recentLeads: LeadData[]
+  paymentEvents: PaymentEvent[]
+  capturedAt: string
+}
+```
+
+`AccountSnapshot` is produced by a **Connector** (PushPress adapter, Mindbody adapter, etc.) and handed to the agent. The agent never fetches data directly — connectors do.
+
+```
+Cron → Connector.buildSnapshot(accountId) → AccountSnapshot → GMAgent.runAnalysis() → Insights → Tasks
+```
+
+### Phase 2 — Task Execution (per-task, lazy)
+
+Once a Task exists, an agent acts on it. It knows exactly what it's doing: "recover past-due invoice for John Smith." It doesn't need all 500 members. Each task declares its `dataNeeds` and the framework fetches only those fields before execution begins.
+
+```typescript
+/**
+ * The data needs a task requires to execute.
+ * Declared by the AI when creating a task insight — not hardcoded per task type.
+ */
+export type DataNeed =
+  | 'member_profile'      // basic member info (name, email, phone, status)
+  | 'payment_history'     // recent charges, failed payments, outstanding balance
+  | 'checkin_history'     // visit history for this member
+  | 'enrollment_details'  // current plan, billing schedule, next charge date
+  | 'conversation_history'// prior outreach and replies for this member
+  | 'account_memories'    // learned patterns and preferences for this account
+
+/**
+ * TaskContext — lazy-loaded data bundle for a single task execution.
+ * Only includes what the task declared it needs via dataNeeds.
+ * Produced by AccountDataLoader, consumed by RetentionAgent / SalesAgent.
+ */
+export interface TaskContext {
+  taskId: string
+  accountId: string
+  member: MemberData                        // always included (who is this task about)
+  paymentHistory?: PaymentEvent[]           // if dataNeeds includes 'payment_history'
+  checkinHistory?: CheckinData[]            // if dataNeeds includes 'checkin_history'
+  enrollmentDetails?: EnrollmentData        // if dataNeeds includes 'enrollment_details'
+  conversationHistory?: ConversationTurn[]  // if dataNeeds includes 'conversation_history'
+  accountMemories?: string                  // if dataNeeds includes 'account_memories'
+}
+
+/**
+ * AccountDataLoader — builds a TaskContext by fetching only what the task needs.
+ * Provided by the connector layer; agents call this, never the raw API.
+ */
+export interface AccountDataLoader {
+  /**
+   * Build a TaskContext for a task execution.
+   * Fetches only the data fields declared in task.dataNeeds.
+   */
+  forTask(
+    accountId: string,
+    memberId: string,
+    dataNeeds: DataNeed[],
+  ): Promise<TaskContext>
+
+  /**
+   * Build an AccountSnapshot for analysis (full eager load).
+   * Called by the cron — not by individual task agents.
+   */
+  buildSnapshot(accountId: string): Promise<AccountSnapshot>
+}
+```
+
+### How dataNeeds gets set (AI-native)
+
+When GMAgent creates an insight/task, it includes a `dataNeeds` declaration. The AI decides what data the downstream agent will need — not a hardcoded map from `task_type → data fields`.
+
+```typescript
+// GMAgent produces this when creating a task
+interface InsightTask {
+  accountId: string
+  memberId: string
+  memberName: string
+  memberEmail: string
+  type: string          // AI-assigned label, not an enum
+  title: string
+  detail: string
+  priority: 'critical' | 'high' | 'medium' | 'low'
+  dataNeeds: DataNeed[] // AI declares: ["member_profile", "payment_history"]
+}
+```
+
+The execution framework reads `dataNeeds`, calls `AccountDataLoader.forTask()`, and passes the resulting `TaskContext` to the agent. No agent ever decides what data to fetch — the data arrives pre-loaded.
+
+```
+Task created → dataNeeds: ["member_profile", "payment_history"]
+             → AccountDataLoader.forTask(accountId, memberId, dataNeeds)
+             → TaskContext { member, paymentHistory }
+             → RetentionAgent.execute(task, context)
+```
+
+### Why this is AI-native
+
+The AI declares intent (`dataNeeds`), code handles mechanics (fetching). The agent layer never calls PushPress directly. A future Mindbody connector implements the same `AccountDataLoader` interface — the agents never know or care which connector is running.
+
+```
+WRONG: RetentionAgent calls ppGet('/enrollments') directly
+RIGHT: RetentionAgent receives TaskContext with pre-loaded enrollment data
+```
+
+### Summary
+
+| | `AccountSnapshot` | `TaskContext` |
+|---|---|---|
+| **Built by** | Connector (cron, per account) | AccountDataLoader (per task) |
+| **When** | Analysis discovery phase | Task execution phase |
+| **Scope** | Full account — all members | Single member, declared fields only |
+| **Loading** | Eager | Lazy — only declared dataNeeds |
+| **Used by** | GMAgent.runAnalysis() | RetentionAgent, SalesAgent, etc. |
+| **Data volume** | All members × 60-day window | One member × relevant history |
+
+---
+
 ## The Migration: What Changes
 
 ### Phase A: Loosen the Analysis Pipeline
@@ -374,6 +515,14 @@ Phase D: AI-driven events (depends on A + C)
 **Phase A and B should happen now — before we build more task types and scoring logic on top of the current hardcoded foundation.**
 
 Phase C and D depend on the connector framework (Phase 8) and can wait.
+
+Phase E: Two-phase data loading (can run parallel with A + B)
+  ├── Rename GymSnapshot → AccountSnapshot
+  ├── Define DataNeed type + TaskContext interface
+  ├── Build AccountDataLoader (PushPress implementation wraps ppGet)
+  ├── Add dataNeeds field to InsightTask / DB tasks table
+  ├── Wire task execution: read dataNeeds → call forTask() → pass TaskContext
+  └── Remove direct ppGet calls from agent layer
 
 ---
 

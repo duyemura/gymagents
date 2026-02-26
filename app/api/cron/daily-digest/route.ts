@@ -20,14 +20,14 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   }
 
   // Get all gyms with connected owners
-  const { data: gyms } = await supabaseAdmin
-    .from('gyms')
+  const { data: accounts } = await supabaseAdmin
+    .from('accounts')
     .select('id, gym_name, user_id, users(email)')
     .not('pushpress_api_key', 'is', null)
 
   let sent = 0
 
-  for (const gym of gyms ?? []) {
+  for (const account of accounts ?? []) {
     const ownerEmail = (gym as any).users?.email
     if (!ownerEmail) continue
 
@@ -36,7 +36,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const { data: pendingTasks } = await supabaseAdmin
         .from('agent_tasks')
         .select('id, member_name, status')
-        .eq('gym_id', gym.id)
+        .eq('account_id', account.id)
         .in('status', ['open', 'awaiting_approval', 'escalated'])
 
       const pendingCount = pendingTasks?.length ?? 0
@@ -46,7 +46,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       if (pendingCount === 0) continue
 
       // Get monthly stats
-      const roi = await getMonthlyRetentionROI(gym.id)
+      const roi = await getMonthlyRetentionROI(account.id)
 
       const memberNames = (pendingTasks ?? [])
         .slice(0, 3)
@@ -64,7 +64,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         html: `<div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; padding: 40px 20px; color: #333;">
           <div style="border-bottom: 2px solid #0063FF; padding-bottom: 16px; margin-bottom: 24px;">
             <span style="font-weight: 700; font-size: 14px;">GymAgents</span>
-            <span style="color: #9CA3AF;"> &middot; ${gym.gym_name ?? 'Your Gym'}</span>
+            <span style="color: #9CA3AF;"> &middot; ${gym.account_name ?? 'Your Gym'}</span>
           </div>
 
           <h2 style="font-size: 18px; font-weight: 600; margin: 0 0 8px; color: #080808;">
@@ -92,14 +92,14 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           </a>
 
           <p style="font-size: 11px; color: #9CA3AF; margin-top: 32px;">
-            You're receiving this because you have GymAgents connected to ${gym.gym_name ?? 'your gym'}.
+            You're receiving this because you have GymAgents connected to ${gym.account_name ?? 'your gym'}.
           </p>
         </div>`,
       })
 
       sent++
     } catch (err: any) {
-      console.error(`[daily-digest] Failed for gym ${gym.id}:`, err?.message)
+      console.error(`[daily-digest] Failed for gym ${account.id}:`, err?.message)
     }
   }
 

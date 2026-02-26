@@ -11,14 +11,14 @@ export interface SendEmailOptions {
   subject: string
   body: string
   replyTo?: string
-  gymName?: string
+  accountName?: string
   fromName?: string
 }
 
 export async function sendEmail(opts: SendEmailOptions): Promise<{ id?: string; error?: string }> {
   const from = opts.fromName
     ? `${opts.fromName} <onboarding@resend.dev>`
-    : `${opts.gymName ?? 'Your Gym'} <onboarding@resend.dev>`
+    : `${opts.accountName ?? 'Your Gym'} <onboarding@resend.dev>`
 
   try {
     const { data, error } = await resend.emails.send({

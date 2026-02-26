@@ -14,13 +14,13 @@ export async function POST(
   if ((session as any).isDemo) return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
 
   // Get the gym
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 
   // Fetch the source skill (must be a system skill or accessible)
   const { data: source, error: fetchErr } = await supabaseAdmin
@@ -35,7 +35,7 @@ export async function POST(
   const { data: existing } = await supabaseAdmin
     .from('skills')
     .select('id')
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .eq('slug', source.slug)
     .single()
 
@@ -47,7 +47,7 @@ export async function POST(
   const { data: clone, error: insertErr } = await supabaseAdmin
     .from('skills')
     .insert({
-      gym_id: gym.id,
+      account_id: account.id,
       slug: source.slug,
       name: source.name,
       description: source.description,

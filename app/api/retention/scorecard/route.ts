@@ -22,18 +22,18 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) {
+  if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
   }
 
   const month = req.nextUrl.searchParams.get('month') ?? undefined
-  const scorecard = await getMonthlyRetentionROI(gym.id, month)
+  const scorecard = await getMonthlyRetentionROI(account.id, month)
 
   return NextResponse.json(scorecard)
 }

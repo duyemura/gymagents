@@ -157,7 +157,7 @@ export default function SettingsPanel({ data, isDemo, gmailConnected, onDisconne
       </section>
 
       {/* Autopilot Mode */}
-      {!isDemo && data?.gym && (
+      {!isDemo && data?.account && (
         <section>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Autopilot Mode</p>
           <div className="border border-gray-100">
@@ -203,7 +203,7 @@ export default function SettingsPanel({ data, isDemo, gmailConnected, onDisconne
             <div>
               <p className="text-xs font-medium text-gray-900">PushPress</p>
               {data?.gym ? (
-                <p className="text-xs text-gray-400 mt-0.5">{data.gym.gym_name} · {data.gym.member_count} members</p>
+                <p className="text-xs text-gray-400 mt-0.5">{data.account.account_name} · {data.account.member_count} members</p>
               ) : (
                 <p className="text-xs text-gray-400 mt-0.5">Not connected</p>
               )}

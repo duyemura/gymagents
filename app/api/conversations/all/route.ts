@@ -17,15 +17,15 @@ export async function GET(req: NextRequest) {
   const session = await getSession() as any
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const gymId = session.gymId ?? session.companyId ?? (session.isDemo ? '00000000-0000-0000-0000-000000000001' : null)
+  const accountId = session.accountId ?? session.companyId ?? (session.isDemo ? '00000000-0000-0000-0000-000000000001' : null)
 
-  if (!gymId) return NextResponse.json({ error: 'No gym' }, { status: 400 })
+  if (!accountId) return NextResponse.json({ error: 'No gym' }, { status: 400 })
 
   // Fetch conversation rows from task_conversations
   const { data: convRows, error } = await supabaseAdmin
     .from('task_conversations')
     .select('id, task_id, role, content, agent_name, evaluation, created_at')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .order('created_at', { ascending: true })
     .limit(2000)
 
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
   const { data: tasks } = await supabaseAdmin
     .from('agent_tasks')
     .select('id, status, member_name, member_email, outcome, outcome_score, outcome_reason, resolved_at, requires_approval')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
 
   const taskMap = new Map((tasks ?? []).map(t => [t.id, t]))
 
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
   })
 
   return NextResponse.json({
-    gym_id: gymId,
+    account_id: accountId,
     total: sorted.length,
     threads: sorted,
   })

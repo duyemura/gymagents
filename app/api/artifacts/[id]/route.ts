@@ -40,13 +40,13 @@ export async function GET(
     }
 
     // Verify gym ownership
-    const { data: gym } = await supabaseAdmin
-      .from('gyms')
+    const { data: account } = await supabaseAdmin
+      .from('accounts')
       .select('id')
       .eq('user_id', session.id)
       .single()
 
-    if (!gym || gym.id !== artifact.gym_id) {
+    if (!gym || account.id !== artifact.account_id) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
   }

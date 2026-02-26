@@ -10,21 +10,21 @@ import type {
   AppendConversationParams,
 } from '../types/agents'
 import { publishEvent } from './events'
-import type { GymInsight } from '../agents/GMAgent'
+import type { AccountInsight } from '../agents/GMAgent'
 
 /** Max autopilot messages per gym per day */
 export const DAILY_AUTOPILOT_LIMIT = 10
 
 // Fixed UUID for the PushPress East demo gym.
 // Corresponds to the row inserted by migration 001_phase1_agent_tasks.sql.
-export const DEMO_GYM_ID = '00000000-0000-0000-0000-000000000001'
+export const DEMO_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001'
 
 // ============================================================
 // createTask
 // ============================================================
 export async function createTask(params: CreateTaskParams): Promise<AgentTask> {
   const insert: AgentTaskInsert = {
-    gym_id: params.gymId,
+    account_id: params.accountId,
     assigned_agent: params.assignedAgent,
     task_type: params.taskType,
     member_email: params.memberEmail ?? null,
@@ -50,7 +50,7 @@ export async function createTask(params: CreateTaskParams): Promise<AgentTask> {
 
   // Publish TaskCreated event (fire-and-forget — never block task creation)
   publishEvent({
-    gymId: task.gym_id,
+    accountId: task.gym_id,
     eventType: 'TaskCreated',
     aggregateId: task.id,
     aggregateType: 'task',
@@ -127,7 +127,7 @@ export async function updateTaskStatus(
         if (!task) return
         const eventType = status === 'resolved' ? 'TaskCompleted' : 'TaskEscalated'
         return publishEvent({
-          gymId: task.gym_id,
+          accountId: task.gym_id,
           eventType,
           aggregateId: taskId,
           aggregateType: 'task',
@@ -160,7 +160,7 @@ export async function appendConversation(
     .from('task_conversations')
     .insert({
       task_id: taskId,
-      gym_id: msg.gymId,
+      account_id: msg.accountId,
       role: msg.role,
       content: msg.content,
       agent_name: msg.agentName ?? null,
@@ -192,11 +192,11 @@ export async function getConversationHistory(taskId: string): Promise<TaskConver
 // ============================================================
 // getOpenTasksForGym
 // ============================================================
-export async function getOpenTasksForGym(gymId: string): Promise<AgentTask[]> {
+export async function getOpenTasksForGym(accountId: string): Promise<AgentTask[]> {
   const { data, error } = await supabaseAdmin
     .from('agent_tasks')
     .select('*')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .in('status', ['open', 'awaiting_reply', 'awaiting_approval', 'in_progress', 'escalated'])
     .order('created_at', { ascending: false })
 
@@ -213,7 +213,7 @@ export async function getOpenTasksForGym(gymId: string): Promise<AgentTask[]> {
 // These never require approval — the owner is already aware of them.
 // ============================================================
 export async function createAdHocTask(params: {
-  gymId: string
+  accountId: string
   goal: string
   assignedAgent: 'gm' | 'retention' | 'sales'
   taskType?: string
@@ -222,7 +222,7 @@ export async function createAdHocTask(params: {
   context?: Record<string, unknown>
 }): Promise<AgentTask> {
   return createTask({
-    gymId: params.gymId,
+    accountId: params.accountId,
     assignedAgent: params.assignedAgent,
     taskType: params.taskType ?? 'ad_hoc',
     memberEmail: params.memberEmail,
@@ -238,7 +238,7 @@ export async function createAdHocTask(params: {
 
 // ============================================================
 // createInsightTask
-// Creates an agent_task from a GMAgent GymInsight.
+// Creates an agent_task from a GMAgent AccountInsight.
 // Called by GMAgent.runAnalysis and GMAgent.handleEvent.
 //
 // Autopilot levels:
@@ -250,17 +250,17 @@ export async function createAdHocTask(params: {
 // require approval but context notes they would have auto-sent.
 // ============================================================
 export async function createInsightTask(params: {
-  gymId: string
-  insight: GymInsight
+  accountId: string
+  insight: AccountInsight
   causationEventId?: string
 }): Promise<AgentTask> {
   let requiresApproval = true
   let wouldAutoSend = false
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('autopilot_enabled, autopilot_enabled_at, autopilot_level')
-    .eq('id', params.gymId)
+    .eq('id', params.accountId)
     .single()
 
   const autopilotLevel = (gym?.autopilot_level ?? 'draft_only') as string
@@ -292,7 +292,7 @@ export async function createInsightTask(params: {
           wouldAutoSend = true
         } else {
           // Check daily send limit before allowing auto-send
-          const todayCount = await getAutopilotSendCountToday(params.gymId)
+          const todayCount = await getAutopilotSendCountToday(params.accountId)
           if (todayCount >= DAILY_AUTOPILOT_LIMIT) {
             // Over limit — queue for manual approval
             wouldAutoSend = true // mark in context so owner knows why
@@ -305,7 +305,7 @@ export async function createInsightTask(params: {
   }
 
   return createTask({
-    gymId: params.gymId,
+    accountId: params.accountId,
     assignedAgent: 'retention',
     taskType: params.insight.type,
     memberEmail: params.insight.memberEmail,
@@ -329,14 +329,14 @@ export async function createInsightTask(params: {
 // Counts auto-sent tasks (requires_approval=false, non-ad_hoc) for a gym today.
 // Used to enforce the daily autopilot send limit.
 // ============================================================
-export async function getAutopilotSendCountToday(gymId: string): Promise<number> {
+export async function getAutopilotSendCountToday(accountId: string): Promise<number> {
   const todayStart = new Date()
   todayStart.setHours(0, 0, 0, 0)
 
   const { count, error } = await supabaseAdmin
     .from('agent_tasks')
     .select('id', { count: 'exact', head: true })
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .eq('requires_approval', false)
     .neq('task_type', 'ad_hoc')
     .gte('created_at', todayStart.toISOString())

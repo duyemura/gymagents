@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   try {
     await supabaseAdmin.from('autopilots').insert({
       id: crypto.randomUUID(),
-      gym_id: null,
+      account_id: null,
       user_id: `demo-${sessionId}`,
       demo_session_id: sessionId,
       expires_at: expiresAt,
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   const jwtPayload: Record<string, any> = {
     userId: `demo-${sessionId}`,
     email: 'demo@gymagents.com',
-    gymName: 'PushPress East',
+    accountName: 'PushPress East',
     companyId: process.env.PUSHPRESS_COMPANY_ID,
     apiKey: process.env.PUSHPRESS_API_KEY,
     isDemo: true,

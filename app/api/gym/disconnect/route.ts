@@ -10,8 +10,8 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id, webhook_id, pushpress_api_key, pushpress_company_id')
     .eq('user_id', session.id)
     .single()
@@ -31,11 +31,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await supabaseAdmin.from('autopilots').delete().eq('gym_id', gym.id)
-    await supabaseAdmin.from('agent_runs').delete().eq('gym_id', gym.id)
-    await supabaseAdmin.from('webhook_events').delete().eq('gym_id', gym.id)
-    await supabaseAdmin.from('agent_subscriptions').delete().eq('gym_id', gym.id)
-    await supabaseAdmin.from('gyms').delete().eq('id', gym.id)
+    await supabaseAdmin.from('autopilots').delete().eq('account_id', account.id)
+    await supabaseAdmin.from('agent_runs').delete().eq('account_id', account.id)
+    await supabaseAdmin.from('webhook_events').delete().eq('account_id', account.id)
+    await supabaseAdmin.from('agent_subscriptions').delete().eq('account_id', account.id)
+    await supabaseAdmin.from('accounts').delete().eq('id', account.id)
   }
 
   return NextResponse.json({ success: true })

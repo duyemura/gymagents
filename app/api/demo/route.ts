@@ -54,7 +54,7 @@ export async function GET() {
       name: 'PushPress East',
       companyId: 'demo',
       memberCount: 127,
-      gym_name: 'PushPress East',
+      account_name: 'PushPress East',
       member_count: 127,
     },
     tier: 'pro',

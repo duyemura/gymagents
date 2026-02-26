@@ -40,17 +40,17 @@ const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 })
 
 // Fixed demo gym UUID — matches the row inserted by migration 001
-const DEMO_GYM_ID = '00000000-0000-0000-0000-000000000001'
+const DEMO_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 function resolveGymId(rawGymId: string | null | undefined): string {
-  if (!rawGymId || rawGymId === 'demo') return DEMO_GYM_ID
+  if (!rawGymId || rawGymId === 'demo') return DEMO_ACCOUNT_ID
   // If it looks like a UUID, use it; otherwise fall back to demo
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-  return uuidPattern.test(rawGymId) ? rawGymId : DEMO_GYM_ID
+  return uuidPattern.test(rawGymId) ? rawGymId : DEMO_ACCOUNT_ID
 }
 
 function mapLegacyRole(role: string): 'agent' | 'member' | 'system' {
@@ -112,7 +112,7 @@ async function backfillTasks(): Promise<Map<string, string>> {
     }
 
     const content = action.content ?? {}
-    const gymId = resolveGymId(content._gymId)
+    const accountId = resolveGymId(content._accountId)
     const goal =
       content.recommendedAction ??
       content.playbookGoal ??
@@ -122,7 +122,7 @@ async function backfillTasks(): Promise<Map<string, string>> {
       const { data: newTask, error: insertErr } = await db
         .from('agent_tasks')
         .insert({
-          gym_id: gymId,
+          account_id: accountId,
           assigned_agent: 'retention',
           created_by_agent: 'gm',
           task_type: action.action_type ?? 'manual',
@@ -247,7 +247,7 @@ async function backfillConversations(actionToTaskId: Map<string, string>): Promi
       continue
     }
 
-    const gymId = resolveGymId(convo.gym_id)
+    const accountId = resolveGymId(convo.gym_id)
     const role = mapLegacyRole(convo.role)
     const content =
       role === 'system' && convo.role === 'agent_decision'
@@ -273,7 +273,7 @@ async function backfillConversations(actionToTaskId: Map<string, string>): Promi
 
       const { error: insertErr } = await db.from('task_conversations').insert({
         task_id: taskId,
-        gym_id: gymId,
+        account_id: accountId,
         role,
         content,
         agent_name: role === 'agent' ? 'retention' : null,
@@ -313,7 +313,7 @@ async function main() {
   console.log('🚀  GymAgents Phase 1 Backfill')
   console.log('================================')
   console.log(`   Supabase: ${SUPABASE_URL}`)
-  console.log(`   Demo gym: ${DEMO_GYM_ID}`)
+  console.log(`   Demo gym: ${DEMO_ACCOUNT_ID}`)
 
   const actionToTaskId = await backfillTasks()
   await backfillConversations(actionToTaskId)

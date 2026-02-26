@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic'
  *
  * For each gym:
  *   1. Fetch PushPress data via Platform API v1 (accurate field names from OpenAPI spec)
- *   2. Build GymSnapshot using pushpress-platform.ts mapping functions
+ *   2. Build AccountSnapshot using pushpress-platform.ts mapping functions
  *   3. Run GMAgent.runAnalysis()
  *   4. Save KPI snapshot
  */
@@ -23,7 +23,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
 import { GMAgent } from '@/lib/agents/GMAgent'
-import type { GymSnapshot, PaymentEvent } from '@/lib/agents/GMAgent'
+import type { AccountSnapshot, PaymentEvent } from '@/lib/agents/GMAgent'
 import { createInsightTask } from '@/lib/db/tasks'
 import { saveKPISnapshot, getMonthlyRetentionROI } from '@/lib/db/kpi'
 import { appendSystemEvent } from '@/lib/db/chat'
@@ -46,11 +46,11 @@ import type {
 } from '@/lib/pushpress-platform'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// buildGymSnapshot — accurate field mapping via pushpress-platform.ts
+// buildAccountSnapshot — accurate field mapping via pushpress-platform.ts
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Fetch all PushPress data for a gym and build a GymSnapshot.
+ * Fetch all PushPress data for a gym and build a AccountSnapshot.
  *
  * Uses the real Platform API v1 endpoints and field names:
  *   GET /customers   → PPCustomer[]  (name is { first, last, nickname })
@@ -59,13 +59,13 @@ import type {
  *
  * Auth: API-KEY header (NOT Authorization: Bearer)
  */
-async function buildGymSnapshot(
-  gymId: string,
-  gymName: string,
+async function buildAccountSnapshot(
+  accountId: string,
+  accountName: string,
   apiKey: string,
   companyId?: string,
   avgMembershipPrice?: number,
-): Promise<GymSnapshot> {
+): Promise<AccountSnapshot> {
   const now = new Date()
   const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
   const sixtyDaysAgoMs  = now.getTime() - 60 * 24 * 60 * 60 * 1000
@@ -156,8 +156,8 @@ async function buildGymSnapshot(
     }))
 
   return {
-    gymId,
-    gymName,
+    accountId,
+    accountName,
     members,
     recentCheckins,
     recentLeads: [],
@@ -227,8 +227,8 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   console.log('[run-analysis] Starting gym analysis cron')
 
   // Fetch all connected gyms
-  const { data: gyms, error: gymsError } = await supabaseAdmin
-    .from('gyms')
+  const { data: accounts, error: gymsError } = await supabaseAdmin
+    .from('accounts')
     .select('id, gym_name, pushpress_api_key, pushpress_company_id, avg_membership_price')
     .not('pushpress_api_key', 'is', null)
 
@@ -241,29 +241,29 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   let totalInsights = 0
   let totalTasksCreated = 0
 
-  for (const gym of gyms ?? []) {
+  for (const account of accounts ?? []) {
     try {
       // Decrypt PushPress API key
       let apiKey: string
       try {
         apiKey = decrypt(gym.pushpress_api_key)
       } catch (err) {
-        console.error(`[run-analysis] Could not decrypt API key for gym ${gym.id}:`, err)
+        console.error(`[run-analysis] Could not decrypt API key for gym ${account.id}:`, err)
         continue
       }
 
       // Fetch PushPress data + build snapshot using accurate Platform API v1 types
-      let snapshot: GymSnapshot
+      let snapshot: AccountSnapshot
       try {
-        snapshot = await buildGymSnapshot(
-          gym.id,
-          gym.gym_name ?? 'Gym',
+        snapshot = await buildAccountSnapshot(
+          account.id,
+          gym.account_name ?? 'Gym',
           apiKey,
           gym.pushpress_company_id ?? undefined,
           gym.avg_membership_price ?? undefined,
         )
       } catch (err) {
-        console.error(`[run-analysis] PushPress fetch failed for gym ${gym.id}:`, err)
+        console.error(`[run-analysis] PushPress fetch failed for gym ${account.id}:`, err)
         continue
       }
 
@@ -272,7 +272,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const agent = new GMAgent(deps as any)
       agent.setCreateInsightTask((params) => createInsightTask(params))
 
-      const result = await agent.runAnalysis(gym.id, snapshot)
+      const result = await agent.runAnalysis(account.id, snapshot)
 
       // Save KPI snapshot
       const activeMembers = snapshot.members.filter(m => m.status === 'active').length
@@ -284,7 +284,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         .filter(m => m.status === 'active')
         .reduce((sum, m) => sum + m.monthlyRevenue, 0)
 
-      await saveKPISnapshot(gym.id, {
+      await saveKPISnapshot(account.id, {
         activeMembers,
         churnRiskCount,
         revenueMtd,
@@ -297,19 +297,19 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
       // Append system event to the unified GM chat log
       await appendSystemEvent(
-        gym.id,
+        account.id,
         `GM ran analysis. Found ${result.insightsFound} insight${result.insightsFound !== 1 ? 's' : ''}${result.insightsFound > 0 ? ', added to your To-Do.' : '.'}`,
       )
 
       // Generate research summary artifact (fire-and-forget)
       if (result.insights.length > 0) {
         generateAnalysisArtifact(
-          gym.id,
-          gym.gym_name ?? 'Your Gym',
+          account.id,
+          gym.account_name ?? 'Your Gym',
           result,
           snapshot,
         ).catch(err => {
-          console.warn(`[run-analysis] Artifact generation failed for gym ${gym.id}:`, (err as Error).message)
+          console.warn(`[run-analysis] Artifact generation failed for gym ${account.id}:`, (err as Error).message)
         })
       }
 
@@ -318,10 +318,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       totalTasksCreated += result.tasksCreated
 
       console.log(
-        `[run-analysis] gym=${gym.id} insights=${result.insightsFound} tasks=${result.tasksCreated}`
+        `[run-analysis] gym=${account.id} insights=${result.insightsFound} tasks=${result.tasksCreated}`
       )
     } catch (err) {
-      console.error(`[run-analysis] Unexpected error for gym ${gym.id}:`, err)
+      console.error(`[run-analysis] Unexpected error for gym ${account.id}:`, err)
       // Continue to next gym — never abort the whole run
     }
   }
@@ -341,10 +341,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 // ── Artifact generation ──────────────────────────────────────────────────────
 
 async function generateAnalysisArtifact(
-  gymId: string,
-  gymName: string,
+  accountId: string,
+  accountName: string,
   result: { insights: any[]; insightsFound: number; tasksCreated: number },
-  snapshot: GymSnapshot,
+  snapshot: AccountSnapshot,
 ) {
   const now = new Date()
   const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
@@ -352,7 +352,7 @@ async function generateAnalysisArtifact(
   // Get monthly ROI for the artifact
   let roi = { membersRetained: 0, revenueRetained: 0, messagesSent: 0, conversationsActive: 0, escalations: 0 }
   try {
-    roi = await getMonthlyRetentionROI(gymId)
+    roi = await getMonthlyRetentionROI(accountId)
   } catch {
     // Non-fatal
   }
@@ -369,7 +369,7 @@ async function generateAnalysisArtifact(
   }
 
   const artifactData: ResearchSummaryData = {
-    gymName,
+    accountName,
     generatedAt: now.toISOString(),
     period: monthLabel,
     generatedBy: 'GM Agent',
@@ -404,15 +404,15 @@ async function generateAnalysisArtifact(
   }
 
   await createArtifact({
-    gymId,
+    accountId,
     artifactType: 'research_summary',
-    title: `${gymName} — Analysis Summary`,
+    title: `${accountName} — Analysis Summary`,
     data: artifactData as unknown as Record<string, unknown>,
     createdBy: 'gm',
     shareable: true,
   })
 
-  console.log(`[run-analysis] Artifact generated for gym ${gymId}`)
+  console.log(`[run-analysis] Artifact generated for gym ${accountId}`)
 }
 
 // Vercel Cron Jobs send GET requests — also keep POST for manual triggers

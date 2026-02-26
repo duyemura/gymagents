@@ -30,7 +30,7 @@ export interface WorkflowStep {
 
 export interface Workflow {
   id: string
-  gym_id: string | null
+  account_id: string | null
   name: string
   goal: string
   steps: WorkflowStep[]
@@ -40,7 +40,7 @@ export interface Workflow {
 export interface WorkflowRun {
   id: string
   workflow_id: string
-  gym_id: string
+  account_id: string
   member_id: string
   member_email: string
   member_name: string
@@ -56,14 +56,14 @@ export interface WorkflowRun {
 
 export async function startWorkflowRun({
   workflowId,
-  gymId,
+  accountId,
   memberId,
   memberEmail,
   memberName,
   initialContext = {},
 }: {
   workflowId: string
-  gymId: string
+  accountId: string
   memberId: string
   memberEmail: string
   memberName: string
@@ -84,7 +84,7 @@ export async function startWorkflowRun({
     .from('workflow_runs')
     .insert({
       workflow_id: workflowId,
-      gym_id: gymId,
+      account_id: accountId,
       member_id: memberId,
       member_email: memberEmail,
       member_name: memberName,
@@ -95,7 +95,7 @@ export async function startWorkflowRun({
         ...initialContext,
         memberName,
         memberEmail,
-        gymId,
+        accountId,
       },
     })
     .select()
@@ -153,13 +153,13 @@ export async function executeStep(
 
 async function executeOutreach(run: WorkflowRun, step: WorkflowStep, workflow: Workflow) {
   const cfg = step.config
-  const gymName = run.context.gymName ?? 'the gym'
+  const accountName = run.context.accountName ?? 'the gym'
 
   // Draft message with Claude
   const draft = await draftOutreachMessage({
     goal: run.goal,
     memberName: run.member_name,
-    gymName,
+    accountName,
     stepPrompt: cfg.prompt_override,
     playbookGoal: cfg.playbook_goal,
     context: run.context,
@@ -168,7 +168,7 @@ async function executeOutreach(run: WorkflowRun, step: WorkflowStep, workflow: W
 
   // Create agent_task for tracking and reply routing
   const task = await createTask({
-    gymId: run.gym_id,
+    accountId: run.gym_id,
     assignedAgent: 'retention',
     taskType: 'churn_risk',
     memberEmail: run.member_email,
@@ -194,14 +194,14 @@ async function executeOutreach(run: WorkflowRun, step: WorkflowStep, workflow: W
     subject: draft.subject,
     body: draft.body,
     replyTo: `reply+${task.id}@lunovoria.resend.app`,
-    gymName,
+    accountName,
   })
 
   if (error) throw new Error(`Email send failed: ${error}`)
 
   // Seed outbound conversation
   await appendConversation(task.id, {
-    gymId: run.gym_id,
+    accountId: run.gym_id,
     role: 'agent',
     content: draft.body,
     agentName: 'retention',
@@ -280,7 +280,7 @@ async function executeIntegration(run: WorkflowRun, step: WorkflowStep, workflow
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workflowRunId: run.id,
-          gymId: run.gym_id,
+          accountId: run.gym_id,
           memberId: run.member_id,
           memberEmail: run.member_email,
           memberName: run.member_name,
@@ -316,7 +316,7 @@ async function executeInternalTask(run: WorkflowRun, step: WorkflowStep) {
 
   // Create an agent_task so it surfaces in the dashboard
   await createTask({
-    gymId: run.gym_id,
+    accountId: run.gym_id,
     assignedAgent: 'gm',
     taskType: 'ad_hoc',
     memberEmail: run.member_email,
@@ -430,7 +430,7 @@ export async function handleWorkflowReply({
 
 // ─── Cron: advance paused/timed-out runs ──────────────────────────────────────
 
-export async function tickWorkflows(gymId?: string): Promise<void> {
+export async function tickWorkflows(accountId?: string): Promise<void> {
   const now = new Date().toISOString()
 
   // Resume paused runs whose wait has elapsed
@@ -439,7 +439,7 @@ export async function tickWorkflows(gymId?: string): Promise<void> {
     .select('*, workflows(*)')
     .eq('status', 'paused')
 
-  if (gymId) pausedQuery.eq('gym_id', gymId)
+  if (accountId) pausedQuery.eq('account_id', accountId)
 
   const { data: pausedRuns } = await pausedQuery
 
@@ -489,15 +489,15 @@ function interpolate(template: string, run: WorkflowRun): string {
     .replace(/\{memberName\}/g, run.member_name)
     .replace(/\{memberEmail\}/g, run.member_email)
     .replace(/\{goal\}/g, run.goal)
-    .replace(/\{gymId\}/g, run.gym_id)
+    .replace(/\{accountId\}/g, run.gym_id)
 }
 
 async function draftOutreachMessage({
-  goal, memberName, gymName, stepPrompt, playbookGoal, context, history,
+  goal, memberName, accountName, stepPrompt, playbookGoal, context, history,
 }: {
   goal: string
   memberName: string
-  gymName: string
+  accountName: string
   stepPrompt?: string
   playbookGoal?: string
   context: Record<string, any>
@@ -512,7 +512,7 @@ async function draftOutreachMessage({
   const response = await anthropic.messages.create({
     model: HAIKU,
     max_tokens: 600,
-    system: `You are a retention agent for ${gymName}. Write short, warm, personal messages. Never sound like a template. Always use first name. 3-4 sentences max.`,
+    system: `You are a retention agent for ${accountName}. Write short, warm, personal messages. Never sound like a template. Always use first name. 3-4 sentences max.`,
     messages: [{
       role: 'user',
       content: `${prompt}${historyText}\n\nRespond with JSON: { "subject": "...", "body": "..." }`

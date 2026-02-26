@@ -14,17 +14,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(DEMO_ROI_STATS)
   }
 
-  const gymId = (session as any).gymId
-  // Fall back to looking up gym by user id if gymId not in token
-  let resolvedGymId = gymId
+  const accountId = (session as any).accountId
+  // Fall back to looking up gym by user id if accountId not in token
+  let resolvedGymId = accountId
   if (!resolvedGymId) {
-    const { data: gym } = await supabaseAdmin
-      .from('gyms')
+    const { data: account } = await supabaseAdmin
+      .from('accounts')
       .select('id')
       .eq('user_id', session.id)
       .single()
-    if (!gym) return NextResponse.json({ error: 'no gym' }, { status: 400 })
-    resolvedGymId = gym.id
+    if (!account) return NextResponse.json({ error: 'no gym' }, { status: 400 })
+    resolvedGymId = account.id
   }
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const { data: runs } = await supabaseAdmin
     .from('agent_runs')
     .select('id, actions_taken, messages_sent, cost_usd, billed_usd, attributed_value_usd, time_saved_minutes, completed_at')
-    .eq('gym_id', resolvedGymId)
+    .eq('account_id', resolvedGymId)
     .eq('status', 'completed')
     .gte('completed_at', thirtyDaysAgo)
 
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   const { data: actions } = await supabaseAdmin
     .from('agent_run_actions')
     .select('outcome, actual_value_usd, estimated_value_usd, action_type')
-    .eq('gym_id', resolvedGymId)
+    .eq('account_id', resolvedGymId)
     .gte('created_at', thirtyDaysAgo)
 
   const totalRuns = runs?.length ?? 0

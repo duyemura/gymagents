@@ -2,7 +2,7 @@ import { supabaseAdmin } from './supabase'
 import { encrypt, decrypt } from './encrypt'
 
 interface SendEmailOptions {
-  gymId: string
+  accountId: string
   to: string
   subject: string
   body: string
@@ -10,11 +10,11 @@ interface SendEmailOptions {
   replyToThreadId?: string   // Gmail thread ID
 }
 
-async function getAccessToken(gymId: string): Promise<{ token: string; from: string } | null> {
+async function getAccessToken(accountId: string): Promise<{ token: string; from: string } | null> {
   const { data } = await supabaseAdmin
-    .from('gym_gmail')
+    .from('account_gmail')
     .select('access_token, refresh_token, token_expiry, gmail_address')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .single()
 
   if (!data) return null
@@ -55,13 +55,13 @@ async function getAccessToken(gymId: string): Promise<{ token: string; from: str
       const storedToken = process.env.ENCRYPTION_KEY ? encrypt(newToken) : newToken
 
       await supabaseAdmin
-        .from('gym_gmail')
+        .from('account_gmail')
         .update({
           access_token: storedToken,
           token_expiry: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
           updated_at: new Date().toISOString(),
         })
-        .eq('gym_id', gymId)
+        .eq('account_id', accountId)
 
       return { token: newToken, from: data.gmail_address }
     }
@@ -74,7 +74,7 @@ async function getAccessToken(gymId: string): Promise<{ token: string; from: str
 export async function sendGmailMessage(
   opts: SendEmailOptions
 ): Promise<{ messageId: string; threadId: string } | null> {
-  const auth = await getAccessToken(opts.gymId)
+  const auth = await getAccessToken(opts.accountId)
   if (!auth) return null
 
   // Build RFC 2822 message
@@ -117,11 +117,11 @@ export async function sendGmailMessage(
   return { messageId: sent.id, threadId: sent.threadId }
 }
 
-export async function isGmailConnected(gymId: string): Promise<string | null> {
+export async function isGmailConnected(accountId: string): Promise<string | null> {
   const { data } = await supabaseAdmin
-    .from('gym_gmail')
+    .from('account_gmail')
     .select('gmail_address')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .single()
   return data?.gmail_address ?? null
 }

@@ -94,7 +94,7 @@ describe('GET /api/retention/scorecard', () => {
 
   it('returns real scorecard for authenticated gym owner', async () => {
     mockSession = { id: 'user-123' }
-    fromResponses.gyms = { data: { id: 'gym-abc' }, error: null }
+    fromResponses.accounts = { data: { id: 'gym-abc' }, error: null }
 
     const res = await handler(makeRequest('/api/retention/scorecard'))
     const body = await res.json()
@@ -106,7 +106,7 @@ describe('GET /api/retention/scorecard', () => {
 
   it('returns 400 when no gym connected', async () => {
     mockSession = { id: 'user-123' }
-    fromResponses.gyms = { data: null, error: null }
+    fromResponses.accounts = { data: null, error: null }
 
     const res = await handler(makeRequest('/api/retention/scorecard'))
     expect(res.status).toBe(400)
@@ -146,7 +146,7 @@ describe('GET /api/retention/activity', () => {
 
   it('returns 400 when no gym connected', async () => {
     mockSession = { id: 'user-123' }
-    fromResponses.gyms = { data: null, error: null }
+    fromResponses.accounts = { data: null, error: null }
 
     const res = await handler(makeRequest('/api/retention/activity'))
     expect(res.status).toBe(400)
@@ -186,7 +186,7 @@ describe('GET /api/retention/members', () => {
 
   it('returns 400 when no gym connected', async () => {
     mockSession = { id: 'user-123' }
-    fromResponses.gyms = { data: null, error: null }
+    fromResponses.accounts = { data: null, error: null }
 
     const res = await handler(makeRequest('/api/retention/members'))
     expect(res.status).toBe(400)

@@ -277,16 +277,16 @@ export async function buildMultiSkillPrompt(skills: SkillMeta[]): Promise<string
  * Build a full system prompt for conversation evaluation.
  * Combines the skill context + gym memories + structured output instructions.
  *
- * Pass gymId to inject gym-specific memories. Without it, no memories are included
+ * Pass accountId to inject gym-specific memories. Without it, no memories are included
  * (safe for tests and contexts where DB isn't available).
  */
 export async function buildEvaluationPrompt(
   taskType: string,
-  opts?: { gymId?: string; memberId?: string },
+  opts?: { accountId?: string; memberId?: string },
 ): Promise<string> {
   const skillContext = await loadSkillPrompt(taskType)
-  const memories = opts?.gymId
-    ? await loadMemories(opts.gymId, { scope: 'retention', memberId: opts.memberId })
+  const memories = opts?.accountId
+    ? await loadMemories(opts.accountId, { scope: 'retention', memberId: opts.memberId })
     : ''
 
   const memoryBlock = memories ? `\n\n${memories}\n` : ''
@@ -320,11 +320,11 @@ Respond ONLY with valid JSON (no markdown fences):
  */
 export async function buildDraftingPrompt(
   taskType: string,
-  opts?: { gymId?: string; memberId?: string },
+  opts?: { accountId?: string; memberId?: string },
 ): Promise<string> {
   const skillContext = await loadSkillPrompt(taskType)
-  const memories = opts?.gymId
-    ? await loadMemories(opts.gymId, { scope: 'retention', memberId: opts.memberId })
+  const memories = opts?.accountId
+    ? await loadMemories(opts.accountId, { scope: 'retention', memberId: opts.memberId })
     : ''
 
   const memoryBlock = memories ? `\n\n${memories}\n` : ''
@@ -345,11 +345,11 @@ Return ONLY the message text — no subject line, no explanation, just the messa
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function loadMemories(
-  gymId: string,
+  accountId: string,
   opts: { scope?: string; memberId?: string },
 ): Promise<string> {
   try {
-    return await getMemoriesForPrompt(gymId, opts)
+    return await getMemoriesForPrompt(accountId, opts)
   } catch (err) {
     console.warn('[skill-loader] Failed to load gym memories:', (err as Error).message)
     return ''

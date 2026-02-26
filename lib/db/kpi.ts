@@ -1,5 +1,5 @@
 /**
- * lib/db/kpi.ts — KPI snapshot helpers for gym_kpi_snapshots table.
+ * lib/db/kpi.ts — KPI snapshot helpers for account_kpi_snapshots table.
  *
  * Stores periodic snapshots of key gym metrics for trend tracking.
  * Written by cron/run-analysis after each GMAgent analysis run.
@@ -10,7 +10,7 @@ import { supabaseAdmin } from '../supabase'
 
 export interface KPISnapshot {
   id: string
-  gymId: string
+  accountId: string
   capturedAt: string
   activeMembersCount: number | null
   churnRiskCount: number | null
@@ -37,13 +37,13 @@ export interface KPISnapshotInsert {
 // ── saveKPISnapshot ───────────────────────────────────────────────────────────
 
 export async function saveKPISnapshot(
-  gymId: string,
+  accountId: string,
   snapshot: KPISnapshotInsert,
 ): Promise<void> {
   const { error } = await supabaseAdmin
-    .from('gym_kpi_snapshots')
+    .from('account_kpi_snapshots')
     .insert({
-      gym_id: gymId,
+      account_id: accountId,
       active_members: snapshot.activeMembersCount ?? snapshot.activeMembers ?? null,
       churn_risk_count: snapshot.churnRiskCount ?? null,
       avg_visits_per_week: snapshot.avgVisitsPerWeek ?? null,
@@ -71,7 +71,7 @@ export interface MonthlyRetentionROI {
 }
 
 export async function getMonthlyRetentionROI(
-  gymId: string,
+  accountId: string,
   month?: string,
 ): Promise<MonthlyRetentionROI> {
   const now = new Date()
@@ -87,7 +87,7 @@ export async function getMonthlyRetentionROI(
   const { data: tasks } = await supabaseAdmin
     .from('agent_tasks')
     .select('id, status, outcome, attributed_value, created_at')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .gte('created_at', startIso)
     .lt('created_at', endIso)
 
@@ -123,11 +123,11 @@ export async function getMonthlyRetentionROI(
 
 // ── getLatestKPISnapshot ──────────────────────────────────────────────────────
 
-export async function getLatestKPISnapshot(gymId: string): Promise<KPISnapshot | null> {
+export async function getLatestKPISnapshot(accountId: string): Promise<KPISnapshot | null> {
   const { data, error } = await supabaseAdmin
-    .from('gym_kpi_snapshots')
+    .from('account_kpi_snapshots')
     .select('*')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .order('captured_at', { ascending: false })
     .limit(1)
     .single()
@@ -141,7 +141,7 @@ export async function getLatestKPISnapshot(gymId: string): Promise<KPISnapshot |
 
   return {
     id: data.id,
-    gymId: data.gym_id,
+    accountId: data.gym_id,
     capturedAt: data.captured_at,
     activeMembersCount: data.active_members ?? null,
     churnRiskCount: data.churn_risk_count ?? null,

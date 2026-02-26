@@ -9,18 +9,18 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const { data: gym } = await supabaseAdmin
-      .from('gyms')
+    const { data: account } = await supabaseAdmin
+      .from('accounts')
       .select('id')
       .eq('user_id', session.id)
       .single()
 
-    if (!gym) return NextResponse.json({ events: [] })
+    if (!account) return NextResponse.json({ events: [] })
 
     const { data: events } = await supabaseAdmin
       .from('webhook_events')
       .select('*')
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .order('created_at', { ascending: false })
       .limit(50)
 

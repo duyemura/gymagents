@@ -64,7 +64,7 @@ export type Database = {
           user_id: string
           pushpress_api_key: string
           pushpress_company_id: string
-          gym_name: string
+          account_name: string
           member_count: number
           webhook_id: string | null
           connected_at: string
@@ -73,7 +73,7 @@ export type Database = {
       agent_runs: {
         Row: {
           id: string
-          gym_id: string
+          account_id: string
           agent_type: string
           status: string
           input_summary: string | null
@@ -96,7 +96,7 @@ export type Database = {
       autopilots: {
         Row: {
           id: string
-          gym_id: string
+          account_id: string
           skill_type: string
           trigger_config: any
           is_active: boolean

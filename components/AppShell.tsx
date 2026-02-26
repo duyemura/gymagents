@@ -16,7 +16,7 @@ interface AppShellProps {
   isDemo: boolean
   isSandboxDemo: boolean
   isPreviewMode?: boolean
-  gymName: string
+  accountName: string
   children: React.ReactNode
   slidePanel?: React.ReactNode
   onSlidePanelClose: () => void
@@ -83,7 +83,7 @@ export default function AppShell({
   isDemo,
   isSandboxDemo,
   isPreviewMode = false,
-  gymName,
+  accountName,
   children,
   slidePanel,
   onSlidePanelClose,
@@ -119,7 +119,7 @@ export default function AppShell({
           </div>
           <span className="font-medium text-sm" style={{ color: isDemo ? '#080808' : 'white' }}>GymAgents</span>
           <span className="text-sm select-none" style={{ color: isDemo ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)' }}>·</span>
-          <span className="text-sm truncate max-w-32" style={{ color: isDemo ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)' }}>{gymName}</span>
+          <span className="text-sm truncate max-w-32" style={{ color: isDemo ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.45)' }}>{accountName}</span>
           {isDemo && (
             <span
               className="text-[10px] font-bold tracking-widest uppercase px-1.5 py-0.5 ml-1"

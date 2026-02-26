@@ -7,9 +7,9 @@ import { supabaseAdmin } from '../supabase'
 export type MemoryCategory = 'preference' | 'member_fact' | 'gym_context' | 'learned_pattern'
 export type MemorySource = 'owner' | 'agent' | 'system'
 
-export interface GymMemory {
+export interface AccountMemory {
   id: string
-  gym_id: string
+  account_id: string
   category: MemoryCategory
   content: string
   importance: number
@@ -22,7 +22,7 @@ export interface GymMemory {
 }
 
 export interface CreateMemoryParams {
-  gymId: string
+  accountId: string
   category: MemoryCategory
   content: string
   importance?: number
@@ -39,17 +39,17 @@ export interface GetMemoriesOpts {
 }
 
 // ============================================================
-// getGymMemories
+// getAccountMemories
 // ============================================================
 
-export async function getGymMemories(
-  gymId: string,
+export async function getAccountMemories(
+  accountId: string,
   opts: GetMemoriesOpts = {},
-): Promise<GymMemory[]> {
+): Promise<AccountMemory[]> {
   let query = supabaseAdmin
-    .from('gym_memories')
+    .from('account_memories')
     .select('*')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .eq('active', true)
     .order('importance', { ascending: false })
     .order('created_at', { ascending: false })
@@ -75,21 +75,21 @@ export async function getGymMemories(
   const { data, error } = await query
 
   if (error) {
-    throw new Error(`getGymMemories failed: ${error.message}`)
+    throw new Error(`getAccountMemories failed: ${error.message}`)
   }
 
-  return (data ?? []) as GymMemory[]
+  return (data ?? []) as AccountMemory[]
 }
 
 // ============================================================
 // createMemory
 // ============================================================
 
-export async function createMemory(params: CreateMemoryParams): Promise<GymMemory> {
+export async function createMemory(params: CreateMemoryParams): Promise<AccountMemory> {
   const { data, error } = await supabaseAdmin
-    .from('gym_memories')
+    .from('account_memories')
     .insert({
-      gym_id: params.gymId,
+      account_id: params.accountId,
       category: params.category,
       content: params.content,
       importance: params.importance ?? 3,
@@ -104,7 +104,7 @@ export async function createMemory(params: CreateMemoryParams): Promise<GymMemor
     throw new Error(`createMemory failed: ${error.message}`)
   }
 
-  return data as GymMemory
+  return data as AccountMemory
 }
 
 // ============================================================
@@ -113,10 +113,10 @@ export async function createMemory(params: CreateMemoryParams): Promise<GymMemor
 
 export async function updateMemory(
   memoryId: string,
-  updates: Partial<Pick<GymMemory, 'content' | 'category' | 'importance' | 'scope'>>,
+  updates: Partial<Pick<AccountMemory, 'content' | 'category' | 'importance' | 'scope'>>,
 ): Promise<void> {
   const { error } = await supabaseAdmin
-    .from('gym_memories')
+    .from('account_memories')
     .update({
       ...updates,
       updated_at: new Date().toISOString(),
@@ -134,7 +134,7 @@ export async function updateMemory(
 
 export async function deactivateMemory(memoryId: string): Promise<void> {
   const { error } = await supabaseAdmin
-    .from('gym_memories')
+    .from('account_memories')
     .update({ active: false, updated_at: new Date().toISOString() })
     .eq('id', memoryId)
 
@@ -151,10 +151,10 @@ export async function deactivateMemory(memoryId: string): Promise<void> {
 // ============================================================
 
 export async function getMemoriesForPrompt(
-  gymId: string,
+  accountId: string,
   opts: { scope?: string; memberId?: string } = {},
 ): Promise<string> {
-  const memories = await getGymMemories(gymId, {
+  const memories = await getAccountMemories(accountId, {
     scope: opts.scope,
     memberId: opts.memberId,
     minImportance: 3, // Only include importance >= 3 in prompts

@@ -10,21 +10,21 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   // Get the gym for this user
-  let gymId: string | null = null
+  let accountId: string | null = null
   if (!(session as any).isDemo) {
-    const { data: gym } = await supabaseAdmin
-      .from('gyms')
+    const { data: account } = await supabaseAdmin
+      .from('accounts')
       .select('id')
       .eq('user_id', session.id)
       .single()
-    gymId = gym?.id ?? null
+    accountId = gym?.id ?? null
   }
 
   // Fetch system skills (gym_id IS NULL, is_system = true)
   const { data: systemSkills, error: sysErr } = await supabaseAdmin
     .from('skills')
     .select('*')
-    .is('gym_id', null)
+    .is('account_id', null)
     .eq('is_system', true)
     .order('category')
     .order('name')
@@ -35,11 +35,11 @@ export async function GET(req: NextRequest) {
 
   // Fetch this gym's custom skills
   let gymSkills: any[] = []
-  if (gymId) {
+  if (accountId) {
     const { data, error } = await supabaseAdmin
       .from('skills')
       .select('*')
-      .eq('gym_id', gymId)
+      .eq('account_id', accountId)
       .order('created_at', { ascending: false })
     if (!error) gymSkills = data ?? []
   }
@@ -57,13 +57,13 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((session as any).isDemo) return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 
   const body = await req.json()
   const { name, description, category, trigger_condition, system_prompt, tone_guidance, escalation_rules, success_criteria, followup_cadence, default_value_usd } = body
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
   const { data: skill, error } = await supabaseAdmin
     .from('skills')
     .insert({
-      gym_id: gym.id,
+      account_id: account.id,
       slug,
       name,
       description: description ?? null,

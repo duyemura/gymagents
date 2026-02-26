@@ -16,13 +16,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Look up the gym for this user
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 
   // Validate the access token against the Facebook Graph API
   const validateRes = await fetch(
@@ -59,14 +59,14 @@ export async function POST(req: NextRequest) {
     .from('gym_instagram')
     .upsert(
       {
-        gym_id: gym.id,
+        account_id: account.id,
         access_token: encryptedToken,
         instagram_business_account_id: businessAccountId,
         instagram_username: username,
         connected_at: now,
         updated_at: now,
       },
-      { onConflict: 'gym_id' }
+      { onConflict: 'account_id' }
     )
 
   if (upsertError) {

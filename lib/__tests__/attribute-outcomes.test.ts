@@ -77,7 +77,7 @@ function makeRequest(secret?: string) {
 function makeTaskWithGym(overrides: Record<string, any> = {}) {
   return {
     id: 'task-001',
-    gym_id: 'gym-001',
+    account_id: 'gym-001',
     status: 'awaiting_reply',
     outcome: null,
     member_email: 'dan@example.com',

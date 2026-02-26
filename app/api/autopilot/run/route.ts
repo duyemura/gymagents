@@ -112,10 +112,10 @@ export async function POST(req: NextRequest) {
         const { data: user } = await supabaseAdmin
           .from('users').select('*').eq('id', session.id).single()
 
-        const { data: gym } = await supabaseAdmin
-          .from('gyms').select('*').eq('user_id', session.id).single()
+        const { data: account } = await supabaseAdmin
+          .from('accounts').select('*').eq('user_id', session.id).single()
 
-        if (!gym) {
+        if (!account) {
           emit({ type: 'error', message: 'No gym connected' })
           controller.close()
           return
@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
           startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0)
           const { count } = await supabaseAdmin
             .from('agent_runs').select('*', { count: 'exact', head: true })
-            .eq('gym_id', gym.id).gte('created_at', startOfMonth.toISOString())
+            .eq('account_id', account.id).gte('created_at', startOfMonth.toISOString())
           if ((count || 0) >= 3) {
             emit({ type: 'error', message: "Monthly scan limit reached. Upgrade to run more scans." })
             controller.close()
@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
 
         const { data: run } = await supabaseAdmin
           .from('agent_runs')
-          .insert({ gym_id: gym.id, agent_type: 'at_risk_detector', status: 'running', input_summary: `Scanning ${gym.member_count} members for churn risk` })
+          .insert({ account_id: account.id, agent_type: 'at_risk_detector', status: 'running', input_summary: `Scanning ${gym.member_count} members for churn risk` })
           .select().single()
 
         let atRiskMembers = await getAtRiskMembers(client, gym.pushpress_company_id)
@@ -162,14 +162,14 @@ export async function POST(req: NextRequest) {
 
         emit({ type: 'status', text: `Found ${membersForAnalysis.length} members to analyze — running churn risk scoring…` })
 
-        const agentOutput = await runAtRiskDetector(gym.gym_name, membersForAnalysis, tier)
+        const agentOutput = await runAtRiskDetector(gym.account_name, membersForAnalysis, tier)
 
         emit({ type: 'status', text: `Analysis complete — ${agentOutput.actions.length} members flagged. Saving tasks…` })
 
         for (const action of agentOutput.actions) {
           try {
             await createTask({
-              gymId: gym.id,
+              accountId: account.id,
               assignedAgent: 'retention',
               taskType: 'churn_risk',
               memberEmail: action.memberEmail ?? undefined,
@@ -221,11 +221,11 @@ export async function POST(req: NextRequest) {
         }).eq('id', run!.id)
 
         const { data: currentAutopilot } = await supabaseAdmin
-          .from('autopilots').select('run_count').eq('gym_id', gym.id).eq('skill_type', 'at_risk_detector').single()
+          .from('autopilots').select('run_count').eq('account_id', account.id).eq('skill_type', 'at_risk_detector').single()
         await supabaseAdmin.from('autopilots').update({
           last_run_at: new Date().toISOString(),
           run_count: (currentAutopilot?.run_count || 0) + 1,
-        }).eq('gym_id', gym.id).eq('skill_type', 'at_risk_detector')
+        }).eq('account_id', account.id).eq('skill_type', 'at_risk_detector')
 
         emit({ type: 'done', result: { success: true, runId: run!.id, output: agentOutput, tier } })
         controller.close()

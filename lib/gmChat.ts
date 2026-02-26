@@ -16,7 +16,7 @@ export type ActionType = 'answer' | 'data_table' | 'recommendation' | 'task_crea
 
 export interface GMChatMessage {
   id?: string
-  gymId?: string
+  accountId?: string
   role: 'user' | 'assistant' | 'system_event'
   content: string
   route?: string
@@ -29,7 +29,7 @@ export interface GMChatMessage {
 
 export interface GMChatRequest {
   message: string
-  gymId: string
+  accountId: string
   conversationHistory?: GMChatMessage[]
 }
 
@@ -42,9 +42,9 @@ export interface GMChatResponse {
   thinkingSteps?: string[]
 }
 
-export interface GymContext {
-  gymId: string
-  gymName: string
+export interface AccountContext {
+  accountId: string
+  accountName: string
   memberCount: number
 }
 
@@ -135,8 +135,8 @@ export async function claudeRespond(
 
 // ── buildGymSystemPrompt ──────────────────────────────────────────────────────
 
-export function buildGymSystemPrompt(gymContext: GymContext): string {
-  return `You are the GM Agent for ${gymContext.gymName}, a boutique fitness gym with ${gymContext.memberCount} members.
+export function buildGymSystemPrompt(gymContext: AccountContext): string {
+  return `You are the GM Agent for ${gymContext.accountName}, a boutique fitness gym with ${gymContext.memberCount} members.
 You are a trusted advisor to the gym owner. Be direct, practical, and warm — like a knowledgeable colleague who knows the business.
 Never use the word "AI" or "agent". Speak as if you know this gym personally.
 Keep responses concise. If you need data you don't have, say what you'd look for.`
@@ -147,7 +147,7 @@ Keep responses concise. If you need data you don't have, say what you'd look for
 // subAgentContext is loaded from .agents/agents/*.md files (server-side only).
 
 export function buildGMSystemPromptWithAgents(
-  gymContext: GymContext,
+  gymContext: AccountContext,
   subAgentContext: string,
 ): string {
   return `${buildGymSystemPrompt(gymContext)}

@@ -83,7 +83,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const memberEmail = task.member_email
       const memberName = task.member_name ?? (memberEmail?.split('@')[0] ?? 'there')
       const messageSubject = (ctx.messageSubject as string) ?? 'Checking in from the gym'
-      const gymName = gym.gym_name ?? 'the gym'
+      const accountName = gym.account_name ?? 'the gym'
 
       if (!draftMessage || !memberEmail) continue
 
@@ -91,7 +91,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const { data: optout } = await supabaseAdmin
         .from('communication_optouts')
         .select('id')
-        .eq('gym_id', task.gym_id)
+        .eq('account_id', task.gym_id)
         .eq('channel', 'email')
         .eq('contact', memberEmail)
         .maybeSingle()
@@ -123,7 +123,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         const gmailAddress = await isGmailConnected(task.gym_id)
         if (gmailAddress) {
           const result = await sendGmailMessage({
-            gymId: task.gym_id,
+            accountId: task.gym_id,
             to: memberEmail,
             subject: messageSubject,
             body: draftMessage,
@@ -143,7 +143,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         // Track in outbound_messages for audit trail
         try {
           await dbCommands.createOutboundMessage({
-            gym_id: task.gym_id,
+            account_id: task.gym_id,
             task_id: task.id,
             sent_by_agent: 'retention',
             channel: 'email',
@@ -163,7 +163,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
         // Log conversation + update task status
         await appendConversation(task.id, {
-          gymId: task.gym_id,
+          accountId: task.gym_id,
           role: 'agent',
           content: draftMessage,
           agentName: 'retention',
@@ -197,7 +197,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const { data: optout } = await supabaseAdmin
         .from('communication_optouts')
         .select('id')
-        .eq('gym_id', task.gym_id)
+        .eq('account_id', task.gym_id)
         .eq('channel', 'email')
         .eq('contact', memberEmail)
         .maybeSingle()
@@ -249,7 +249,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         const gmailAddress = await isGmailConnected(task.gym_id)
         if (gmailAddress) {
           const result = await sendGmailMessage({
-            gymId: task.gym_id,
+            accountId: task.gym_id,
             to: memberEmail,
             subject: 'Re: Checking in',
             body: followUpMessage,
@@ -271,7 +271,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         // Track in outbound_messages
         try {
           await dbCommands.createOutboundMessage({
-            gym_id: task.gym_id,
+            account_id: task.gym_id,
             task_id: task.id,
             sent_by_agent: 'retention',
             channel: 'email',
@@ -289,7 +289,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         }
 
         await appendConversation(task.id, {
-          gymId: task.gym_id,
+          accountId: task.gym_id,
           role: 'agent',
           content: followUpMessage,
           agentName: 'retention',

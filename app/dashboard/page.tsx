@@ -160,7 +160,7 @@ function DashboardContent() {
       const json = await res.json()
       if (json.isDemo) setIsSandboxDemo(true)
 
-      if (!json.isDemo && !json.gym && !isDemoParam) {
+      if (!json.isDemo && !json.account && !isDemoParam) {
         setIsPreviewMode(true)
         const demoRes = await fetch('/api/demo')
         if (demoRes.ok) { setData(await demoRes.json()); return }
@@ -296,7 +296,7 @@ function DashboardContent() {
   }
 
   const autopilots = isDemo ? DEMO_AGENTS : (data?.autopilots ?? [])
-  const gymName = isDemo ? 'PushPress East' : (data?.gym?.gym_name ?? data?.gym?.name ?? 'Your Gym')
+  const accountName = isDemo ? 'PushPress East' : (data?.gym?.account_name ?? data?.gym?.name ?? 'Your Gym')
   const memberCount = data?.gym?.member_count ?? data?.gym?.memberCount ?? 0
   // Map autopilot_level to execution mode for UI components
   const autopilotLevel = data?.gym?.autopilot_level ?? 'draft_only'
@@ -324,7 +324,7 @@ function DashboardContent() {
   const gmChatNode = (
     <GMChat
       ref={gmChatRef}
-      gymId={isDemo ? 'demo-gym' : (data?.gym?.id ?? '')}
+      accountId={isDemo ? 'demo-gym' : (data?.gym?.id ?? '')}
       isDemo={isDemo}
       onRunAnalysis={runScan}
       onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
@@ -480,7 +480,7 @@ function DashboardContent() {
         isDemo={isDemo}
         isSandboxDemo={isSandboxDemo}
         isPreviewMode={isPreviewMode}
-        gymName={gymName}
+        accountName={accountName}
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         activeSection={activeSection}

@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
         taskId: task.id,
         memberEmail: fromEmail,
         replyContent: cleanText.trim(),
-        gymId: task.gym_id,
+        accountId: task.gym_id,
       })
       console.log(`inbound-email: RetentionAgent.handleReply completed for task ${task.id}`)
     } else {

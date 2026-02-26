@@ -16,28 +16,28 @@ export async function POST(req: NextRequest) {
   const demoSessionId = (session as any)?.demoSessionId
 
   try {
-    let gymId: string | null = null
+    let accountId: string | null = null
 
     if (!isDemo) {
       // Get gym for this user
-      const { data: gym } = await supabaseAdmin
-        .from('gyms')
+      const { data: account } = await supabaseAdmin
+        .from('accounts')
         .select('id')
         .eq('user_id', session.id)
         .single()
 
-      if (!gym) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
-      gymId = gym.id
+      if (!account) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
+      accountId = account.id
     }
 
     // Create autopilot record
     // For real gyms: skill_type must be unique per gym — dedupe with timestamp if collision
     let skillType = config.skill_type
-    if (!isDemo && gymId) {
+    if (!isDemo && accountId) {
       const { data: existing } = await supabaseAdmin
         .from('autopilots')
         .select('id')
-        .eq('gym_id', gymId)
+        .eq('account_id', accountId)
         .eq('skill_type', skillType)
         .single()
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     }
 
     const insertData: any = {
-      gym_id: gymId,
+      account_id: accountId,
       skill_type: skillType,
       name: config.name,
       description: config.description,
@@ -87,14 +87,14 @@ export async function POST(req: NextRequest) {
     // If event-triggered and not demo, create agent_subscription record
     if (
       !isDemo &&
-      gymId &&
+      accountId &&
       (config.trigger_mode === 'event' || config.trigger_mode === 'both') &&
       config.trigger_event
     ) {
       const { error: subError } = await supabaseAdmin
         .from('agent_subscriptions')
         .insert({
-          gym_id: gymId,
+          account_id: accountId,
           autopilot_id: autopilot.id,
           event_type: config.trigger_event,
           is_active: true

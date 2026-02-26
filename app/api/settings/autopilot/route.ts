@@ -17,13 +17,13 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('autopilot_enabled, autopilot_enabled_at, autopilot_level')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) {
+  if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
   }
 
@@ -63,13 +63,13 @@ export async function POST(req: NextRequest) {
   const level = body.level as string | undefined
   const enabled = body.enabled as boolean | undefined
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id, autopilot_enabled, autopilot_level, autopilot_enabled_at')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) {
+  if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
   }
 
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     updates.autopilot_enabled = level !== 'draft_only'
 
     // Reset shadow mode timer when upgrading to smart/full_auto
-    if (level !== 'draft_only' && (!gym.autopilot_enabled || gym.autopilot_level === 'draft_only')) {
+    if (level !== 'draft_only' && (!gym.autopilot_enabled || account.autopilot_level === 'draft_only')) {
       updates.autopilot_enabled_at = new Date().toISOString()
     }
   }
@@ -100,9 +100,9 @@ export async function POST(req: NextRequest) {
 
   if (Object.keys(updates).length > 0) {
     await supabaseAdmin
-      .from('gyms')
+      .from('accounts')
       .update(updates)
-      .eq('id', gym.id)
+      .eq('id', account.id)
   }
 
   return NextResponse.json({

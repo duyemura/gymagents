@@ -3,7 +3,7 @@ import { renderArtifact } from '../artifacts/render'
 import type { ResearchSummaryData } from '../artifacts/types'
 
 const SAMPLE_DATA: ResearchSummaryData = {
-  gymName: 'PushPress East',
+  accountName: 'PushPress East',
   generatedAt: '2026-02-25T21:00:00Z',
   period: 'February 2026',
   generatedBy: 'GM Agent',

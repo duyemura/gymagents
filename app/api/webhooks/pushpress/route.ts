@@ -101,8 +101,8 @@ async function processWebhookAsync(rawBody: string) {
   console.log(`[webhook] ${eventType} for company=${companyId}`)
 
   // Look up gym by PushPress company ID
-  const { data: gym, error: gymErr } = await supabaseAdmin
-    .from('gyms')
+  const { data: account, error: gymErr } = await supabaseAdmin
+    .from('accounts')
     .select('id, gym_name, pushpress_api_key, pushpress_company_id')
     .eq('pushpress_company_id', companyId)
     .single()
@@ -113,7 +113,7 @@ async function processWebhookAsync(rawBody: string) {
   const { data: webhookEvent, error: insertErr } = await supabaseAdmin
     .from('webhook_events')
     .insert({
-      gym_id: gym?.id ?? null,
+      account_id: gym?.id ?? null,
       event_type: eventType,
       payload: payload as Record<string, unknown>,
       agent_runs_triggered: 0
@@ -123,7 +123,7 @@ async function processWebhookAsync(rawBody: string) {
 
   if (insertErr) console.error(`[webhook] insert failed: ${insertErr.message} (code=${insertErr.code})`)
 
-  if (!gym) {
+  if (!account) {
     console.log(`[webhook] no gym for company=${companyId}, event stored`)
     // Still mark as processed even when no gym matched
     if (webhookEvent?.id) {
@@ -135,14 +135,14 @@ async function processWebhookAsync(rawBody: string) {
     return
   }
 
-  console.log(`[webhook] gym matched: ${gym.id} (${gym.gym_name})`)
+  console.log(`[webhook] gym matched: ${account.id} (${gym.account_name})`)
 
   // Decrypt the stored API key to pass to MCP
   let decryptedApiKey: string
   try {
     decryptedApiKey = decrypt(gym.pushpress_api_key)
   } catch (err: any) {
-    console.error('[webhook] could not decrypt API key for gym', gym.id, err.message)
+    console.error('[webhook] could not decrypt API key for gym', account.id, err.message)
     // Still mark as processed so we know it ran
     if (webhookEvent?.id) {
       await supabaseAdmin
@@ -162,7 +162,7 @@ async function processWebhookAsync(rawBody: string) {
   const { data: subs, error: subsErr } = await supabaseAdmin
     .from('agent_subscriptions')
     .select('id, autopilot_id, autopilots(*)')
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .eq('event_type', eventType)
     .eq('is_active', true)
 
@@ -201,7 +201,7 @@ async function processWebhookAsync(rawBody: string) {
     console.log(`[webhook] running GMAgent.handleEvent...`)
     const gmAgent = new GMAgent(buildWebhookAgentDeps())
     gmAgent.setCreateInsightTask(createInsightTask)
-    await gmAgent.handleEvent(gym.id, {
+    await gmAgent.handleEvent(account.id, {
       type: eventType,
       data: eventData,
     })
@@ -222,7 +222,7 @@ async function processWebhookAsync(rawBody: string) {
         const { data: winBackTask } = await supabaseAdmin
           .from('agent_tasks')
           .select('id, gym_id, context')
-          .eq('gym_id', gym.id)
+          .eq('account_id', account.id)
           .eq('task_type', 'win_back')
           .is('outcome', null)
           .or(`context->>memberId.eq.${customerId},member_email.eq.${eventData.customerEmail ?? ''}`)
@@ -232,9 +232,9 @@ async function processWebhookAsync(rawBody: string) {
         if (winBackTask) {
           // Fetch gym's avg membership price for attribution
           const { data: gymData } = await supabaseAdmin
-            .from('gyms')
+            .from('accounts')
             .select('avg_membership_price')
-            .eq('id', gym.id)
+            .eq('id', account.id)
             .single()
 
           const membershipValue = gymData?.avg_membership_price ?? 150
@@ -266,7 +266,7 @@ async function processWebhookAsync(rawBody: string) {
 }
 
 async function runSubscribedAgent(
-  gym: { id: string; gym_name: string; pushpress_api_key: string; pushpress_company_id: string },
+  gym: { id: string; account_name: string; pushpress_api_key: string; pushpress_company_id: string },
   autopilot: { id: string; skill_type: string; name?: string; system_prompt?: string; action_type?: string },
   eventType: string,
   eventData: Record<string, unknown>
@@ -275,7 +275,7 @@ async function runSubscribedAgent(
   const { data: run } = await supabaseAdmin
     .from('agent_runs')
     .insert({
-      gym_id: gym.id,
+      account_id: account.id,
       agent_type: autopilot.skill_type,
       status: 'running',
       input_summary: `Event: ${eventType}`

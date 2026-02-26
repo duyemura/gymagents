@@ -60,14 +60,14 @@ export async function POST(req: NextRequest) {
     const memberEmail = task.member_email ?? (ctx.memberEmail as string)
     const draftMessage = (ctx.draftMessage as string) ?? ''
     const messageSubject = (ctx.messageSubject as string) ?? 'Checking in from the gym'
-    const gymId = task.gym_id
+    const accountId = task.gym_id
 
-    if (memberEmail && draftMessage && gymId) {
+    if (memberEmail && draftMessage && accountId) {
       try {
-        const gmailAddress = await isGmailConnected(gymId)
+        const gmailAddress = await isGmailConnected(accountId)
         if (gmailAddress) {
           await sendGmailMessage({
-            gymId,
+            accountId,
             to: memberEmail,
             subject: messageSubject,
             body: draftMessage,
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
 
         // Log the outbound message in conversation
         await appendConversation(actionId, {
-          gymId,
+          accountId,
           role: 'agent',
           content: draftMessage,
           agentName: 'retention',

@@ -10,7 +10,7 @@ export type ArtifactType =
 
 export interface Artifact {
   id: string
-  gym_id: string
+  account_id: string
   artifact_type: ArtifactType
   title: string
   data: Record<string, unknown>
@@ -24,7 +24,7 @@ export interface Artifact {
 // ── Research Summary data shape ──────────────────────────────
 
 export interface ResearchSummaryData {
-  gymName: string
+  accountName: string
   generatedAt: string
   period: string                       // "February 2026" or "Last 30 days"
   generatedBy: string                  // "GM Agent"

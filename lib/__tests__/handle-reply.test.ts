@@ -72,7 +72,7 @@ vi.mock('@anthropic-ai/sdk', () => {
 
 const makeTask = (overrides: Record<string, any> = {}) => ({
   id: 'task-uuid-123',
-  gym_id: 'gym-001',
+  account_id: 'gym-001',
   assigned_agent: 'retention',
   task_type: 'churn_risk',
   member_email: 'dan@example.com',
@@ -96,7 +96,7 @@ describe('handleInboundReply', () => {
     vi.clearAllMocks()
     mockGetTask.mockResolvedValue(makeTask())
     mockGetConversationHistory.mockResolvedValue([
-      { id: 'msg-1', task_id: 'task-uuid-123', gym_id: 'gym-001', role: 'agent', content: 'Hey Dan!', agent_name: 'retention', evaluation: null, created_at: '2026-02-01T00:00:00Z' },
+      { id: 'msg-1', task_id: 'task-uuid-123', account_id: 'gym-001', role: 'agent', content: 'Hey Dan!', agent_name: 'retention', evaluation: null, created_at: '2026-02-01T00:00:00Z' },
     ])
     const mod = await import('../handle-reply')
     handleInboundReply = mod.handleInboundReply

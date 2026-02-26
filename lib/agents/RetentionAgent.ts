@@ -8,7 +8,7 @@
 import { BaseAgent } from './BaseAgent'
 import type { TaskEvaluation, TaskOutcome } from '../types/agents'
 import { buildEvaluationPrompt } from '../skill-loader'
-import { createMemory, getGymMemories } from '../db/memories'
+import { createMemory, getAccountMemories } from '../db/memories'
 
 /** Fallback prompt when skill loading fails */
 const FALLBACK_SYSTEM_PROMPT = `You are a retention agent for a gym. Evaluate the conversation and decide the best next action.
@@ -38,9 +38,9 @@ export class RetentionAgent extends BaseAgent {
     taskId: string
     memberEmail: string
     replyContent: string
-    gymId: string
+    accountId: string
   }): Promise<void> {
-    const { taskId, memberEmail, replyContent, gymId } = params
+    const { taskId, memberEmail, replyContent, accountId } = params
 
     // Load task — bail out if not found
     const task = await this.deps.db.getTask(taskId)
@@ -51,17 +51,17 @@ export class RetentionAgent extends BaseAgent {
 
     // Append member message to conversation
     await this.deps.db.appendConversation(taskId, {
-      gymId,
+      accountId,
       role: 'member',
       content: replyContent,
     })
 
-    // Evaluate with full context (pass gymId for memory injection)
-    const evaluation = await this.evaluateTask(taskId, { gymId })
+    // Evaluate with full context (pass accountId for memory injection)
+    const evaluation = await this.evaluateTask(taskId, { accountId })
 
     // Append agent evaluation/decision to conversation
     await this.deps.db.appendConversation(taskId, {
-      gymId,
+      accountId,
       role: 'system',
       content: `Agent decision: ${evaluation.action} (score=${evaluation.outcomeScore})`,
       agentName: 'retention',
@@ -69,8 +69,8 @@ export class RetentionAgent extends BaseAgent {
     })
 
     // Save noteworthy facts as gym memories (fire-and-forget — never block the reply loop)
-    if (evaluation.noteworthy?.length && gymId) {
-      this._saveNoteworthyFacts(gymId, memberEmail, evaluation.noteworthy).catch(err => {
+    if (evaluation.noteworthy?.length && accountId) {
+      this._saveNoteworthyFacts(accountId, memberEmail, evaluation.noteworthy).catch(err => {
         console.warn('[RetentionAgent] Failed to save noteworthy facts:', (err as Error).message)
       })
     }
@@ -81,14 +81,14 @@ export class RetentionAgent extends BaseAgent {
         if (evaluation.reply) {
           await this._sendEmail({
             task,
-            gymId,
+            accountId,
             recipientEmail: memberEmail,
             recipientName: task.member_name ?? memberEmail,
             reply: evaluation.reply,
           })
           // Append agent reply to conversation
           await this.deps.db.appendConversation(taskId, {
-            gymId,
+            accountId,
             role: 'agent',
             content: evaluation.reply,
             agentName: 'retention',
@@ -104,13 +104,13 @@ export class RetentionAgent extends BaseAgent {
         if (evaluation.reply) {
           await this._sendEmail({
             task,
-            gymId,
+            accountId,
             recipientEmail: memberEmail,
             recipientName: task.member_name ?? memberEmail,
             reply: evaluation.reply,
           })
           await this.deps.db.appendConversation(taskId, {
-            gymId,
+            accountId,
             role: 'agent',
             content: evaluation.reply,
             agentName: 'retention',
@@ -132,7 +132,7 @@ export class RetentionAgent extends BaseAgent {
         })
         // Publish event for human review
         await this.deps.events.publishEvent({
-          gymId,
+          accountId,
           eventType: 'TaskEscalated',
           aggregateId: taskId,
           aggregateType: 'task',
@@ -155,27 +155,27 @@ export class RetentionAgent extends BaseAgent {
   /**
    * Core reasoning — loads task + full conversation, calls Claude, returns structured decision.
    * Loads the appropriate task-skill prompt based on task_type.
-   * Pass gymId to inject gym-specific memories into the prompt.
+   * Pass accountId to inject gym-specific memories into the prompt.
    */
   async evaluateTask(
     taskId: string,
-    opts?: { gymId?: string },
+    opts?: { accountId?: string },
   ): Promise<TaskEvaluation> {
     try {
       const task = await this.deps.db.getTask(taskId)
       const history = await this.deps.db.getConversationHistory(taskId)
 
-      const gymName = (task?.context as any)?.gymName ?? 'the gym'
+      const accountName = (task?.context as any)?.accountName ?? 'the gym'
       const memberName = task?.member_name ?? 'the member'
       const goal = task?.goal ?? 'Re-engage the member'
       const taskType = task?.task_type ?? 'churn_risk'
-      const gymId = opts?.gymId ?? task?.gym_id
+      const accountId = opts?.accountId ?? task?.gym_id
 
-      // Load skill-aware system prompt based on task type (with memories if gymId available)
+      // Load skill-aware system prompt based on task type (with memories if accountId available)
       let systemPrompt: string
       try {
         systemPrompt = await buildEvaluationPrompt(taskType, {
-          gymId,
+          accountId,
           memberId: task?.member_email ?? undefined, // member_id would be better, but email is what we have
         })
       } catch {
@@ -192,7 +192,7 @@ export class RetentionAgent extends BaseAgent {
         .join('\n\n')
 
       const prompt = `Goal: ${goal}
-Gym: ${gymName}
+Gym: ${accountName}
 Member: ${memberName}
 
 Conversation:
@@ -212,12 +212,12 @@ Evaluate the conversation and decide the best next action. Return only valid JSO
 
   private async _sendEmail(params: {
     task: Awaited<ReturnType<AgentRetentionAgent['deps']['db']['getTask']>>
-    gymId: string
+    accountId: string
     recipientEmail: string
     recipientName: string
     reply: string
   }) {
-    const { task, gymId, recipientEmail, recipientName, reply } = params
+    const { task, accountId, recipientEmail, recipientName, reply } = params
     const subject = 'Re: Checking in'
 
     // Convert plain text to simple HTML
@@ -240,14 +240,14 @@ Evaluate the conversation and decide the best next action. Return only valid JSO
    * Deduplicates against existing memories for this member.
    */
   private async _saveNoteworthyFacts(
-    gymId: string,
+    accountId: string,
     memberId: string,
     facts: string[],
   ): Promise<void> {
     // Load existing member memories for deduplication
     let existing: string[] = []
     try {
-      const memories = await getGymMemories(gymId, {
+      const memories = await getAccountMemories(accountId, {
         memberId,
         category: 'member_fact',
       })
@@ -269,7 +269,7 @@ Evaluate the conversation and decide the best next action. Return only valid JSO
       if (isDupe) continue
 
       await createMemory({
-        gymId,
+        accountId,
         category: 'member_fact',
         content: normalized,
         importance: 3,

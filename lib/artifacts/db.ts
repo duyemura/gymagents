@@ -7,7 +7,7 @@ import type { Artifact, ArtifactType } from './types'
 import { renderArtifact } from './render'
 
 export async function createArtifact(params: {
-  gymId: string
+  accountId: string
   artifactType: ArtifactType
   title: string
   data: Record<string, unknown>
@@ -22,7 +22,7 @@ export async function createArtifact(params: {
   const { data, error } = await supabaseAdmin
     .from('artifacts')
     .insert({
-      gym_id: params.gymId,
+      account_id: params.accountId,
       artifact_type: params.artifactType,
       title: params.title,
       data: params.data,
@@ -66,11 +66,11 @@ export async function getArtifactByShareToken(token: string): Promise<Artifact |
   return data as Artifact | null
 }
 
-export async function listArtifacts(gymId: string, limit = 20): Promise<Artifact[]> {
+export async function listArtifacts(accountId: string, limit = 20): Promise<Artifact[]> {
   const { data, error } = await supabaseAdmin
     .from('artifacts')
     .select('id, gym_id, artifact_type, title, task_id, created_by, share_token, created_at')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .order('created_at', { ascending: false })
     .limit(limit)
 

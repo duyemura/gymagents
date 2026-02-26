@@ -42,13 +42,13 @@ export async function GET(req: NextRequest) {
   }
 
   // Get gym for this user
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', userId)
     .single()
 
-  if (!gym) {
+  if (!account) {
     return NextResponse.redirect(new URL('/settings?error=no_gym', req.url))
   }
 
@@ -61,17 +61,17 @@ export async function GET(req: NextRequest) {
     : (tokens.refresh_token ?? '')
 
   await supabaseAdmin
-    .from('gym_gmail')
+    .from('account_gmail')
     .upsert(
       {
-        gym_id: gym.id,
+        account_id: account.id,
         gmail_address: profile.email,
         access_token: encryptedAccessToken,
         refresh_token: encryptedRefreshToken,
         token_expiry: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'gym_id' }
+      { onConflict: 'account_id' }
     )
 
   return NextResponse.redirect(new URL('/settings?connected=gmail', req.url))

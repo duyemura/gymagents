@@ -18,7 +18,7 @@ create table if not exists public.gyms (
   user_id uuid references public.users(id) on delete cascade not null,
   pushpress_api_key text not null,
   pushpress_company_id text not null,
-  gym_name text not null default 'Your Gym',
+  account_name text not null default 'Your Gym',
   member_count integer not null default 0,
   webhook_id text,         -- PushPress webhook UUID (auto-registered on connect)
   connected_at timestamptz default now()
@@ -27,7 +27,7 @@ create table if not exists public.gyms (
 -- Agent runs table
 create table if not exists public.agent_runs (
   id uuid primary key default gen_random_uuid(),
-  gym_id uuid references public.gyms(id) on delete cascade not null,
+  account_id uuid references public.gyms(id) on delete cascade not null,
   agent_type text not null,
   status text not null default 'running',
   input_summary text,
@@ -50,7 +50,7 @@ create table if not exists public.agent_actions (
 -- Autopilots table (v2: includes trigger_mode, trigger_event, cron_schedule)
 create table if not exists public.autopilots (
   id uuid primary key default gen_random_uuid(),
-  gym_id uuid references public.gyms(id) on delete cascade not null,
+  account_id uuid references public.gyms(id) on delete cascade not null,
   skill_type text not null,
   name text,
   description text,
@@ -72,7 +72,7 @@ create table if not exists public.autopilots (
 -- Webhook events: raw events received from PushPress
 create table if not exists public.webhook_events (
   id uuid primary key default gen_random_uuid(),
-  gym_id uuid references public.gyms(id),
+  account_id uuid references public.gyms(id),
   event_type text not null,            -- 'lead.created', 'member.cancelled', etc.
   payload jsonb,
   processed_at timestamptz,
@@ -83,7 +83,7 @@ create table if not exists public.webhook_events (
 -- Agent subscriptions: which autopilot listens to which event
 create table if not exists public.agent_subscriptions (
   id uuid primary key default gen_random_uuid(),
-  gym_id uuid references public.gyms(id) on delete cascade not null,
+  account_id uuid references public.gyms(id) on delete cascade not null,
   autopilot_id uuid references public.autopilots(id) on delete cascade not null,
   event_type text not null,            -- 'lead.created', 'member.cancelled', etc.
   is_active boolean default true,
@@ -146,8 +146,8 @@ begin
   if not exists (select 1 from information_schema.columns where table_name='autopilots' and column_name='user_id') then
     alter table public.autopilots add column user_id text;
   end if;
-  -- Make gym_id nullable so demo rows don't need a FK to gyms
-  alter table public.autopilots alter column gym_id drop not null;
+  -- Make account_id nullable so demo rows don't need a FK to gyms
+  alter table public.autopilots alter column account_id drop not null;
 end $$;
 
 -- Service role has full access (used by backend)
@@ -158,9 +158,9 @@ end $$;
 -- ============================================================
 
 -- Gmail OAuth tokens per gym
-CREATE TABLE IF NOT EXISTS public.gym_gmail (
+CREATE TABLE IF NOT EXISTS public.account_gmail (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id UUID NOT NULL REFERENCES public.gyms(id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES public.gyms(id) ON DELETE CASCADE,
   gmail_address TEXT NOT NULL,
   access_token TEXT NOT NULL,   -- AES-256 encrypted
   refresh_token TEXT NOT NULL,  -- AES-256 encrypted
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS public.gym_gmail (
 -- Email threads — track agent email conversations with members
 CREATE TABLE IF NOT EXISTS public.agent_email_threads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  gym_id UUID NOT NULL REFERENCES public.gyms(id) ON DELETE CASCADE,
+  account_id UUID NOT NULL REFERENCES public.gyms(id) ON DELETE CASCADE,
   agent_run_id UUID REFERENCES public.agent_runs(id),
   member_id TEXT NOT NULL,
   member_email TEXT NOT NULL,
@@ -204,6 +204,6 @@ CREATE TABLE IF NOT EXISTS public.agent_email_messages (
 );
 
 -- Enable RLS on new tables
-ALTER TABLE public.gym_gmail ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.account_gmail ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agent_email_threads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.agent_email_messages ENABLE ROW LEVEL SECURITY;

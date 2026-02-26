@@ -238,7 +238,7 @@ async function handleEmailBounced(data: any): Promise<Record<string, any>> {
     await supabaseAdmin
       .from('communication_optouts')
       .upsert({
-        gym_id: '00000000-0000-0000-0000-000000000000',
+        account_id: '00000000-0000-0000-0000-000000000000',
         channel: 'email',
         contact: bounceEmail,
         reason: 'bounced',
@@ -263,7 +263,7 @@ async function handleEmailComplained(data: any): Promise<Record<string, any>> {
     await supabaseAdmin
       .from('communication_optouts')
       .upsert({
-        gym_id: '00000000-0000-0000-0000-000000000000',
+        account_id: '00000000-0000-0000-0000-000000000000',
         channel: 'email',
         contact: complainEmail,
         reason: 'spam_complaint',

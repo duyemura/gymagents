@@ -10,18 +10,18 @@ export async function POST(req: NextRequest) {
   
   const { skillType, isActive } = await req.json()
   
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
   
-  if (!gym) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
+  if (!account) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
   
   await supabaseAdmin
     .from('autopilots')
     .update({ is_active: isActive })
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .eq('skill_type', skillType)
   
   return NextResponse.json({ success: true })

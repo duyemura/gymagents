@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { Resend } from 'resend'
-import { createTask, appendConversation, DEMO_GYM_ID } from '@/lib/db/tasks'
+import { createTask, appendConversation, DEMO_ACCOUNT_ID } from '@/lib/db/tasks'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   try {
     // Create agent_task first — its UUID becomes the reply token
     const task = await createTask({
-      gymId: DEMO_GYM_ID,
+      accountId: DEMO_ACCOUNT_ID,
       assignedAgent: 'retention',
       taskType: 'churn_risk',
       memberEmail: toEmail,
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
         source: 'demo',
         isDemo: true,
         automationLevel,
-        gymName: 'PushPress East (Demo)',
+        accountName: 'PushPress East (Demo)',
         draftedMessage: message,
         messageSubject: subject,
       },
@@ -141,7 +141,7 @@ export async function POST(req: NextRequest) {
     // Seed outbound conversation
     try {
       await appendConversation(task.id, {
-        gymId: DEMO_GYM_ID,
+        accountId: DEMO_ACCOUNT_ID,
         role: 'agent',
         content: message,
         agentName: 'retention',

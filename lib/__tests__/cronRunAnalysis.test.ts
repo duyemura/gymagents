@@ -15,7 +15,7 @@ import { NextRequest } from 'next/server'
 
 const { mockRunAnalysis, mockSetCreateInsightTask } = vi.hoisted(() => ({
   mockRunAnalysis: vi.fn().mockResolvedValue({
-    gymId: 'gym-001',
+    accountId: 'gym-001',
     insightsFound: 3,
     tasksCreated: 3,
     insights: [],
@@ -87,7 +87,7 @@ describe('POST /api/cron/run-analysis', () => {
   beforeEach(() => {
     mockRunAnalysis.mockReset()
     mockRunAnalysis.mockResolvedValue({
-      gymId: 'gym-001',
+      accountId: 'gym-001',
       insightsFound: 3,
       tasksCreated: 3,
       insights: [],
@@ -121,7 +121,7 @@ describe('POST /api/cron/run-analysis', () => {
 
   it('returns correct totals in response body', async () => {
     mockRunAnalysis.mockResolvedValue({
-      gymId: 'gym-001',
+      accountId: 'gym-001',
       insightsFound: 5,
       tasksCreated: 5,
       insights: [],

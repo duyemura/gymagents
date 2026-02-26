@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
       user: { id: `demo-${sessionId}`, email: 'demo@gymagents.com' },
       gym: {
         id: 'demo-gym',
-        gym_name: 'PushPress East',
+        account_name: 'PushPress East',
         member_count: 127,
         pushpress_company_id: process.env.PUSHPRESS_COMPANY_ID,
       },
@@ -114,8 +114,8 @@ export async function GET(req: NextRequest) {
     .eq('id', session.id)
     .single()
   
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('*')
     .eq('user_id', session.id)
     .single()
@@ -128,7 +128,7 @@ export async function GET(req: NextRequest) {
     const { data } = await supabaseAdmin
       .from('autopilots')
       .select('*')
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .order('created_at', { ascending: true })
     autopilots = data || []
   }
@@ -139,7 +139,7 @@ export async function GET(req: NextRequest) {
     const { data } = await supabaseAdmin
       .from('agent_runs')
       .select('*')
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .order('created_at', { ascending: false })
       .limit(5)
     recentRuns = data || []
@@ -151,7 +151,7 @@ export async function GET(req: NextRequest) {
     const { data: tasks } = await supabaseAdmin
       .from('agent_tasks')
       .select('*')
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .in('status', ['open', 'awaiting_approval', 'in_progress'])
       .order('created_at', { ascending: false })
       .limit(20)
@@ -220,7 +220,7 @@ export async function GET(req: NextRequest) {
     const { count } = await supabaseAdmin
       .from('agent_runs')
       .select('*', { count: 'exact', head: true })
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .gte('created_at', startOfMonth.toISOString())
     monthlyRunCount = count || 0
   }
@@ -231,7 +231,7 @@ export async function GET(req: NextRequest) {
     const { data } = await supabaseAdmin
       .from('webhook_events')
       .select('id, event_type, created_at, agent_runs_triggered, processed_at')
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .order('created_at', { ascending: false })
       .limit(10)
     recentEvents = data || []

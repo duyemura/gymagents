@@ -23,7 +23,7 @@ const makePayload = (overrides: Partial<SendEmailPayload> = {}): SendEmailPayloa
   recipientName: 'Dan',
   subject: 'Checking in',
   body: '<p>Hey Dan! We miss you.</p>',
-  gymId: 'gym-001',
+  accountId: 'gym-001',
   sentByAgent: 'retention',
   taskId: 'task-001',
   ...overrides,
@@ -31,7 +31,7 @@ const makePayload = (overrides: Partial<SendEmailPayload> = {}): SendEmailPayloa
 
 const makeCommand = (payload: SendEmailPayload, overrides: Partial<AgentCommand> = {}): AgentCommand => ({
   id: 'cmd-001',
-  gymId: 'gym-001',
+  accountId: 'gym-001',
   commandType: 'SendEmail',
   payload: payload as unknown as Record<string, unknown>,
   issuedByAgent: 'retention',

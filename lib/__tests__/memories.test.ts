@@ -7,7 +7,7 @@ vi.mock('../supabase', () => ({
 }))
 
 import {
-  getGymMemories,
+  getAccountMemories,
   createMemory,
   updateMemory,
   deactivateMemory,
@@ -38,9 +38,9 @@ beforeEach(() => {
 })
 
 // ============================================================
-// getGymMemories
+// getAccountMemories
 // ============================================================
-describe('getGymMemories', () => {
+describe('getAccountMemories', () => {
   it('returns memories for a gym', async () => {
     const memories = [
       { id: '1', content: 'Use casual tone', category: 'preference', importance: 5 },
@@ -49,10 +49,10 @@ describe('getGymMemories', () => {
     const chain = buildChain({ data: memories, error: null })
     mockFrom.mockReturnValue(chain)
 
-    const result = await getGymMemories(GYM_ID)
+    const result = await getAccountMemories(GYM_ID)
 
-    expect(mockFrom).toHaveBeenCalledWith('gym_memories')
-    expect(chain.eq).toHaveBeenCalledWith('gym_id', GYM_ID)
+    expect(mockFrom).toHaveBeenCalledWith('account_memories')
+    expect(chain.eq).toHaveBeenCalledWith('account_id', GYM_ID)
     expect(chain.eq).toHaveBeenCalledWith('active', true)
     expect(result).toEqual(memories)
   })
@@ -61,7 +61,7 @@ describe('getGymMemories', () => {
     const chain = buildChain({ data: [], error: null })
     mockFrom.mockReturnValue(chain)
 
-    await getGymMemories(GYM_ID, { category: 'preference' })
+    await getAccountMemories(GYM_ID, { category: 'preference' })
 
     expect(chain.eq).toHaveBeenCalledWith('category', 'preference')
   })
@@ -70,7 +70,7 @@ describe('getGymMemories', () => {
     const chain = buildChain({ data: [], error: null })
     mockFrom.mockReturnValue(chain)
 
-    await getGymMemories(GYM_ID, { minImportance: 4 })
+    await getAccountMemories(GYM_ID, { minImportance: 4 })
 
     expect(chain.gte).toHaveBeenCalledWith('importance', 4)
   })
@@ -79,7 +79,7 @@ describe('getGymMemories', () => {
     const chain = buildChain({ data: null, error: { message: 'DB down' } })
     mockFrom.mockReturnValue(chain)
 
-    await expect(getGymMemories(GYM_ID)).rejects.toThrow('getGymMemories failed: DB down')
+    await expect(getAccountMemories(GYM_ID)).rejects.toThrow('getAccountMemories failed: DB down')
   })
 })
 
@@ -93,16 +93,16 @@ describe('createMemory', () => {
     mockFrom.mockReturnValue(chain)
 
     const result = await createMemory({
-      gymId: GYM_ID,
+      accountId: GYM_ID,
       category: 'preference',
       content: 'Sign off as Coach Mike',
       source: 'owner',
     })
 
-    expect(mockFrom).toHaveBeenCalledWith('gym_memories')
+    expect(mockFrom).toHaveBeenCalledWith('account_memories')
     expect(chain.insert).toHaveBeenCalledWith(
       expect.objectContaining({
-        gym_id: GYM_ID,
+        account_id: GYM_ID,
         category: 'preference',
         content: 'Sign off as Coach Mike',
         importance: 3,
@@ -119,7 +119,7 @@ describe('createMemory', () => {
     mockFrom.mockReturnValue(chain)
 
     await createMemory({
-      gymId: GYM_ID,
+      accountId: GYM_ID,
       category: 'member_fact',
       content: 'Prefers morning classes',
       importance: 4,
@@ -143,7 +143,7 @@ describe('createMemory', () => {
     mockFrom.mockReturnValue(chain)
 
     await expect(
-      createMemory({ gymId: GYM_ID, category: 'preference', content: 'test', source: 'owner' }),
+      createMemory({ accountId: GYM_ID, category: 'preference', content: 'test', source: 'owner' }),
     ).rejects.toThrow('createMemory failed')
   })
 })

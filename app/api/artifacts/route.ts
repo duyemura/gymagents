@@ -14,15 +14,15 @@ export async function GET(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) return NextResponse.json({ artifacts: [] })
+  if (!account) return NextResponse.json({ artifacts: [] })
 
-  const artifacts = await listArtifacts(gym.id)
+  const artifacts = await listArtifacts(account.id)
   return NextResponse.json({ artifacts })
 }
 
@@ -30,13 +30,13 @@ export async function POST(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
+  if (!account) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
 
   const body = await req.json()
   const { artifactType, title, data, taskId, shareable } = body
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   }
 
   const artifact = await createArtifact({
-    gymId: gym.id,
+    accountId: account.id,
     artifactType: artifactType as ArtifactType,
     title,
     data,

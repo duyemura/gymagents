@@ -24,7 +24,7 @@ import {
 } from '../skill-loader'
 import { GMAgent } from '../agents/GMAgent'
 import type { AgentDeps } from '../agents/BaseAgent'
-import type { GymSnapshot, MemberData, GymInsight } from '../agents/GMAgent'
+import type { AccountSnapshot, MemberData, AccountInsight } from '../agents/GMAgent'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -59,10 +59,10 @@ function makeMember(overrides: Partial<MemberData> = {}): MemberData {
   }
 }
 
-function makeSnapshot(overrides: Partial<GymSnapshot> = {}): GymSnapshot {
+function makeSnapshot(overrides: Partial<AccountSnapshot> = {}): AccountSnapshot {
   return {
-    gymId: 'gym-001',
-    gymName: 'Test Gym',
+    accountId: 'gym-001',
+    accountName: 'Test Gym',
     members: [],
     recentCheckins: [],
     recentLeads: [],

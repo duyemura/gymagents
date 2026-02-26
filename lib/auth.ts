@@ -9,7 +9,7 @@ export interface SessionUser {
   email: string
   // Demo session fields
   userId?: string
-  gymName?: string
+  accountName?: string
   companyId?: string
   apiKey?: string
   isDemo?: boolean
@@ -44,8 +44,8 @@ export async function getUserWithGym(userId: string) {
     .eq('id', userId)
     .single()
   
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('*')
     .eq('user_id', userId)
     .single()

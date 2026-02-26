@@ -20,13 +20,13 @@ export async function POST(req: NextRequest) {
 
     // ── Step 1: Call PushPress to validate key and get gym identity ───────────
     const client = createPushPressClient(apiKey, providedCompanyId ?? '')
-    let gymName = 'Your Gym'
+    let accountName = 'Your Gym'
     let memberCount = 0
     let resolvedCompanyId = providedCompanyId ?? ''
 
     try {
       const stats = await getMemberStats(client, providedCompanyId ?? '')
-      gymName = stats.gymName
+      accountName = stats.accountName
       memberCount = stats.totalMembers
       if (stats.companyId) resolvedCompanyId = stats.companyId
     } catch (err: any) {
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
 
     if (resolvedCompanyId) {
       const { data: byCompany } = await supabaseAdmin
-        .from('gyms')
+        .from('accounts')
         .select('id, webhook_id')
         .eq('pushpress_company_id', resolvedCompanyId)
         .single()
@@ -52,12 +52,12 @@ export async function POST(req: NextRequest) {
         // Gym already in DB — claim it for this user
         console.log(`[connect] Gym ${byCompany.id} already registered, transferring to user ${session.id}`)
         const { error } = await supabaseAdmin
-          .from('gyms')
+          .from('accounts')
           .update({
             user_id: session.id,
             pushpress_api_key: encryptedApiKey,
             pushpress_company_id: resolvedCompanyId,
-            gym_name: gymName,
+            account_name: accountName,
             member_count: memberCount,
             connected_at: new Date().toISOString()
           })
@@ -73,18 +73,18 @@ export async function POST(req: NextRequest) {
     if (!gymRow) {
       // No existing gym found by company ID — check if current user already has one (key rotation)
       const { data: existing } = await supabaseAdmin
-        .from('gyms')
+        .from('accounts')
         .select('id, webhook_id')
         .eq('user_id', session.id)
         .single()
 
       if (existing) {
         const { error } = await supabaseAdmin
-          .from('gyms')
+          .from('accounts')
           .update({
             pushpress_api_key: encryptedApiKey,
             pushpress_company_id: resolvedCompanyId,
-            gym_name: gymName,
+            account_name: accountName,
             member_count: memberCount,
             connected_at: new Date().toISOString()
           })
@@ -97,12 +97,12 @@ export async function POST(req: NextRequest) {
       } else {
         // Brand new gym
         const { error } = await supabaseAdmin
-          .from('gyms')
+          .from('accounts')
           .insert({
             user_id: session.id,
             pushpress_api_key: encryptedApiKey,
             pushpress_company_id: resolvedCompanyId,
-            gym_name: gymName,
+            account_name: accountName,
             member_count: memberCount,
             connected_at: new Date().toISOString()
           })
@@ -114,13 +114,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Re-fetch to get current gym row (ID needed for webhook + autopilot steps)
-    const { data: gym } = await supabaseAdmin
-      .from('gyms')
+    const { data: account } = await supabaseAdmin
+      .from('accounts')
       .select('id, webhook_id')
       .eq('user_id', session.id)
       .single()
 
-    if (!gym) {
+    if (!account) {
       return NextResponse.json({ error: 'Gym was saved but could not be retrieved' }, { status: 500 })
     }
 
@@ -149,9 +149,9 @@ export async function POST(req: NextRequest) {
       // Store webhook ID so we can deactivate it on disconnect
       if (gym) {
         await supabaseAdmin
-          .from('gyms')
+          .from('accounts')
           .update({ webhook_id: result.webhookId })
-          .eq('id', gym.id)
+          .eq('id', account.id)
       }
 
       console.log(
@@ -167,13 +167,13 @@ export async function POST(req: NextRequest) {
       const { data: existingAutopilot } = await supabaseAdmin
         .from('autopilots')
         .select('id')
-        .eq('gym_id', gym.id)
+        .eq('account_id', account.id)
         .eq('skill_type', 'at_risk_detector')
         .single()
 
       if (!existingAutopilot) {
         await supabaseAdmin.from('autopilots').insert({
-          gym_id: gym.id,
+          account_id: account.id,
           skill_type: 'at_risk_detector',
           name: '🚨 At-Risk Member Detector',
           description: 'Finds members who are going quiet before they cancel',
@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      gymName,
+      accountName,
       memberCount,
       webhookRegistered,
       webhookId,

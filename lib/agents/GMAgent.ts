@@ -84,9 +84,9 @@ export interface PaymentEvent {
   recoveredAt?: string
 }
 
-export interface GymSnapshot {
-  gymId: string
-  gymName?: string         // optional gym display name
+export interface AccountSnapshot {
+  accountId: string
+  accountName?: string         // optional gym display name
   members: MemberData[]
   recentCheckins: CheckinData[]
   recentLeads: LeadData[]
@@ -94,7 +94,7 @@ export interface GymSnapshot {
   capturedAt: string
 }
 
-export interface GymInsight {
+export interface AccountInsight {
   type: InsightType
   priority: 'critical' | 'high' | 'medium' | 'low'
   memberId?: string
@@ -114,15 +114,15 @@ export interface ChurnRiskScore {
 }
 
 export interface AnalysisResult {
-  gymId: string
+  accountId: string
   insightsFound: number
   tasksCreated: number
-  insights: GymInsight[]
+  insights: AccountInsight[]
 }
 
-export interface GymContext {
-  gymId: string
-  gymName: string
+export interface AccountContext {
+  accountId: string
+  accountName: string
   ownerName?: string
 }
 
@@ -132,8 +132,8 @@ export interface PushPressEvent {
 }
 
 export interface CreateInsightTaskParams {
-  gymId: string
-  insight: GymInsight
+  accountId: string
+  insight: AccountInsight
   causationEventId?: string
 }
 
@@ -251,8 +251,8 @@ export class GMAgent extends BaseAgent {
    * Generate a prioritized list of insights from gym data.
    * This is the core analytical method — pure, no side effects.
    */
-  analyzeGym(snapshot: GymSnapshot): GymInsight[] {
-    const insights: GymInsight[] = []
+  analyzeGym(snapshot: AccountSnapshot): AccountInsight[] {
+    const insights: AccountInsight[] = []
     const now = new Date()
 
     // --- Churn risk from member attendance ---
@@ -324,10 +324,10 @@ export class GMAgent extends BaseAgent {
    * AI-driven analysis: sends member data + skill context to Claude,
    * which reasons about who needs attention and why.
    *
-   * Returns GymInsight[] — same shape as analyzeGym() for compatibility.
+   * Returns AccountInsight[] — same shape as analyzeGym() for compatibility.
    * Uses Haiku for cost efficiency (~$0.02 per 100 members).
    */
-  async analyzeGymAI(snapshot: GymSnapshot, gymId: string): Promise<GymInsight[]> {
+  async analyzeGymAI(snapshot: AccountSnapshot, accountId: string): Promise<AccountInsight[]> {
     // Build member summaries for the prompt (compact but informative)
     const now = new Date()
     const memberSummaries = snapshot.members
@@ -402,7 +402,7 @@ Respond with ONLY valid JSON (no markdown fences):
   ]
 }`
 
-    const prompt = `Business: ${snapshot.gymName ?? 'Business'} (${memberSummaries.length} active/paused clients)
+    const prompt = `Business: ${snapshot.accountName ?? 'Business'} (${memberSummaries.length} active/paused clients)
 Snapshot captured: ${snapshot.capturedAt}
 
 ## Clients:
@@ -423,9 +423,9 @@ Analyze these clients and return the ones who need attention.`
       }
 
       const parsed = JSON.parse(jsonMatch[0])
-      const aiInsights: GymInsight[] = (parsed.insights ?? []).map((i: any) => ({
+      const aiInsights: AccountInsight[] = (parsed.insights ?? []).map((i: any) => ({
         type: (i.type || 'churn_risk') as InsightType,
-        priority: (['critical', 'high', 'medium', 'low'].includes(i.priority) ? i.priority : 'medium') as GymInsight['priority'],
+        priority: (['critical', 'high', 'medium', 'low'].includes(i.priority) ? i.priority : 'medium') as AccountInsight['priority'],
         memberId: i.memberId,
         memberName: i.memberName,
         memberEmail: i.memberEmail,
@@ -470,20 +470,20 @@ Analyze these clients and return the ones who need attention.`
    * if Claude call fails. Pass opts.useFormula to force formula mode (for tests).
    */
   async runAnalysis(
-    gymId: string,
-    data: GymSnapshot,
+    accountId: string,
+    data: AccountSnapshot,
     opts?: { useFormula?: boolean },
   ): Promise<AnalysisResult> {
     const insights = opts?.useFormula
       ? this.analyzeGym(data)
-      : await this.analyzeGymAI(data, gymId)
+      : await this.analyzeGymAI(data, accountId)
 
     let tasksCreated = 0
 
     for (const insight of insights) {
       try {
         if (this._createInsightTask) {
-          await this._createInsightTask({ gymId, insight })
+          await this._createInsightTask({ accountId, insight })
           tasksCreated++
         }
       } catch (err) {
@@ -492,7 +492,7 @@ Analyze these clients and return the ones who need attention.`
     }
 
     return {
-      gymId,
+      accountId,
       insightsFound: insights.length,
       tasksCreated,
       insights,
@@ -505,11 +505,11 @@ Analyze these clients and return the ones who need attention.`
    * Handle a PushPress webhook event.
    * Reacts immediately to important events (cancellation, no-show, etc.)
    */
-  async handleEvent(gymId: string, event: PushPressEvent): Promise<void> {
+  async handleEvent(accountId: string, event: PushPressEvent): Promise<void> {
     try {
       switch (event.type) {
         case 'customer.status.changed': {
-          await this._handleStatusChanged(gymId, event)
+          await this._handleStatusChanged(accountId, event)
           break
         }
         case 'checkin.created': {
@@ -519,7 +519,7 @@ Analyze these clients and return the ones who need attention.`
         }
         case 'appointment.noshowed':
         case 'reservation.noshowed': {
-          await this._handleNoShow(gymId, event)
+          await this._handleNoShow(accountId, event)
           break
         }
         default:
@@ -537,12 +537,12 @@ Analyze these clients and return the ones who need attention.`
    * Draft a coach-voice message for a given insight.
    * Loads the appropriate task-skill for the insight type, then calls Claude.
    */
-  async draftMessage(insight: GymInsight, gymContext: GymContext): Promise<string> {
+  async draftMessage(insight: AccountInsight, gymContext: AccountContext): Promise<string> {
     // Load skill-aware drafting prompt — try direct type mapping first,
     // then semantic matching for AI-assigned types
     let system: string
     try {
-      system = await buildDraftingPrompt(insight.type, { gymId: gymContext.gymId })
+      system = await buildDraftingPrompt(insight.type, { accountId: gymContext.accountId })
     } catch {
       // Try semantic selection based on the insight's description
       try {
@@ -562,7 +562,7 @@ Return ONLY the message text — no subject line, no explanation, just the messa
     }
 
     const insightContext = [
-      `Gym: ${gymContext.gymName}`,
+      `Gym: ${gymContext.accountName}`,
       gymContext.ownerName ? `Owner: ${gymContext.ownerName}` : '',
       `Situation: ${insight.title}`,
       `Details: ${insight.detail}`,
@@ -580,7 +580,7 @@ Write a short, personal message the gym owner can send to ${insight.memberName ?
 
   // ── Private helpers ───────────────────────────────────────────────────────────
 
-  private async _handleStatusChanged(gymId: string, event: PushPressEvent): Promise<void> {
+  private async _handleStatusChanged(accountId: string, event: PushPressEvent): Promise<void> {
     const data = event.data as {
       customerId?: string
       customerName?: string
@@ -605,7 +605,7 @@ Write a short, personal message the gym owner can send to ${insight.memberName ?
         : null
       const tenureStr = tenure !== null ? `${tenure} month${tenure !== 1 ? 's' : ''}` : 'unknown tenure'
 
-      const insight: GymInsight = {
+      const insight: AccountInsight = {
         type: 'win_back',
         priority: 'high',
         memberId: data.customerId,
@@ -618,10 +618,10 @@ Write a short, personal message the gym owner can send to ${insight.memberName ?
       }
 
       if (this._createInsightTask) {
-        await this._createInsightTask({ gymId, insight })
+        await this._createInsightTask({ accountId, insight })
       }
     } else if (newStatus === 'paused') {
-      const insight: GymInsight = {
+      const insight: AccountInsight = {
         type: 'churn_risk',
         priority: 'medium',
         memberId: data.customerId,
@@ -634,12 +634,12 @@ Write a short, personal message the gym owner can send to ${insight.memberName ?
       }
 
       if (this._createInsightTask) {
-        await this._createInsightTask({ gymId, insight })
+        await this._createInsightTask({ accountId, insight })
       }
     }
   }
 
-  private async _handleNoShow(gymId: string, event: PushPressEvent): Promise<void> {
+  private async _handleNoShow(accountId: string, event: PushPressEvent): Promise<void> {
     const data = event.data as {
       customerId?: string
       customerName?: string
@@ -649,7 +649,7 @@ Write a short, personal message the gym owner can send to ${insight.memberName ?
 
     const memberName = data.customerName ?? 'Member'
 
-    const insight: GymInsight = {
+    const insight: AccountInsight = {
       type: 'no_show',
       priority: 'medium',
       memberId: data.customerId,
@@ -662,7 +662,7 @@ Write a short, personal message the gym owner can send to ${insight.memberName ?
     }
 
     if (this._createInsightTask) {
-      await this._createInsightTask({ gymId, insight })
+      await this._createInsightTask({ accountId, insight })
     }
   }
 }

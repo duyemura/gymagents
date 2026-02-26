@@ -40,13 +40,13 @@ export default function DashboardShell({ children, activeSection = 'agents' }: D
   }
 
   const isDemo = !!data?.isDemo
-  const gymName = data?.gym?.gym_name ?? data?.gym?.name ?? 'My Gym'
+  const accountName = data?.gym?.account_name ?? data?.gym?.name ?? 'My Gym'
 
   return (
     <AppShell
       isDemo={isDemo}
       isSandboxDemo={false}
-      gymName={gymName}
+      accountName={accountName}
       agents={[]}
       selectedAgentId={null}
       onSelectAgent={() => {}}

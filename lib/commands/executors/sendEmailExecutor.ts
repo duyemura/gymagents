@@ -16,7 +16,7 @@ export interface SendEmailPayload {
   body: string          // HTML
   replyToken?: string
   taskId?: string
-  gymId: string
+  accountId: string
   sentByAgent: string
 }
 
@@ -33,7 +33,7 @@ export interface SendEmailExecutorDeps {
   }
   db: {
     createOutboundMessage: (msg: {
-      gym_id: string
+      account_id: string
       task_id: string | null
       sent_by_agent: string
       channel: 'email'
@@ -61,7 +61,7 @@ export class SendEmailExecutor implements CommandExecutor {
 
     // Step 1: Create outbound_messages row with status=queued (before sending)
     const outbound = await this.deps.db.createOutboundMessage({
-      gym_id: payload.gymId,
+      account_id: payload.accountId,
       task_id: payload.taskId ?? null,
       sent_by_agent: payload.sentByAgent,
       channel: 'email',

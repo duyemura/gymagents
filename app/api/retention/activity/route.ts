@@ -20,13 +20,13 @@ export async function GET(req: NextRequest) {
     ])
   }
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) {
+  if (!account) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
   }
 
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   const { data: conversations } = await supabaseAdmin
     .from('task_conversations')
     .select('id, task_id, role, content, agent_name, created_at, agent_tasks(member_name, member_email, status, outcome)')
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .order('created_at', { ascending: false })
     .limit(30)
 

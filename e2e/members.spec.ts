@@ -30,7 +30,7 @@ test.describe('Members Page', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ user: { email: 'test@gym.com' }, gym: { id: 'gym-1', gym_name: 'Test Gym', member_count: 120 }, pendingActions: [], agents: [], recentRuns: [], tier: 'pro' }),
+        body: JSON.stringify({ user: { email: 'test@gym.com' }, gym: { id: 'gym-1', account_name: 'Test Gym', member_count: 120 }, pendingActions: [], agents: [], recentRuns: [], tier: 'pro' }),
       })
     })
 

@@ -8,7 +8,7 @@ export default function ConnectPage() {
   const [apiKey, setApiKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState<{ gymName: string; memberCount: number } | null>(null)
+  const [success, setSuccess] = useState<{ accountName: string; memberCount: number } | null>(null)
   const router = useRouter()
 
   const handleConnect = async (e: React.FormEvent) => {
@@ -25,7 +25,7 @@ export default function ConnectPage() {
       if (!res.ok) {
         setError(data.error ?? 'Something went wrong — please check your API key and try again.')
       } else {
-        setSuccess({ gymName: data.gymName, memberCount: data.memberCount })
+        setSuccess({ accountName: data.accountName, memberCount: data.memberCount })
         setTimeout(() => router.push('/dashboard'), 2500)
       }
     } catch {
@@ -40,7 +40,7 @@ export default function ConnectPage() {
         <div className="bg-white border border-gray-200 p-10 text-center max-w-md w-full">
           <div className="text-5xl mb-4">🏋️</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            {success.gymName} is connected!
+            {success.accountName} is connected!
           </h2>
           <p className="text-gray-500 text-sm mb-6">
             {success.memberCount > 0

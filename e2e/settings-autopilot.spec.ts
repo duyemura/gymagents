@@ -16,7 +16,7 @@ const api = (path: string) => (url: URL) => url.pathname === path || url.pathnam
 
 const MOCK_DASHBOARD = {
   user: { email: 'test@gym.com' },
-  gym: { id: 'gym-1', gym_name: 'Test Gym', member_count: 120, autopilot_enabled: false, avg_membership_value: 150 },
+  gym: { id: 'gym-1', account_name: 'Test Gym', member_count: 120, autopilot_enabled: false, avg_membership_value: 150 },
   tier: 'pro',
   pendingActions: [],
   agents: [],

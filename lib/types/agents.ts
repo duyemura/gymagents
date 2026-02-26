@@ -62,7 +62,7 @@ export type MessageProvider = 'resend' | 'twilio'
 
 export interface AgentTask {
   id: string
-  gym_id: string
+  account_id: string
   assigned_agent: AgentName
   created_by_agent: AgentName
   task_type: string                   // 'attendance_drop_intervention' | 'no_show_recovery' | 'lead_followup' | 'churn_prevention' | 'manual'
@@ -88,7 +88,7 @@ export interface AgentTask {
 }
 
 export interface AgentTaskInsert {
-  gym_id: string
+  account_id: string
   assigned_agent: AgentName
   created_by_agent?: AgentName
   task_type: string
@@ -118,7 +118,7 @@ export interface AgentTaskInsert {
 export interface TaskConversationMessage {
   id: string
   task_id: string
-  gym_id: string
+  account_id: string
   role: ConversationRole
   content: string
   agent_name: string | null
@@ -132,7 +132,7 @@ export interface TaskConversationMessage {
 
 export interface OutboundMessage {
   id: string
-  gym_id: string
+  account_id: string
   task_id: string | null
   sent_by_agent: string
   channel: MessageChannel
@@ -158,7 +158,7 @@ export interface OutboundMessage {
 
 export interface AgentEvent {
   id: string
-  gym_id: string
+  account_id: string
   event_type: AgentEventType
   aggregate_id: string                // e.g. member UUID, lead UUID
   aggregate_type: string              // e.g. 'member', 'lead', 'task'
@@ -175,7 +175,7 @@ export interface AgentEvent {
 
 export interface CommunicationOptout {
   id: string
-  gym_id: string
+  account_id: string
   channel: MessageChannel
   contact: string                     // email or phone
   opted_out_at: string                // ISO 8601
@@ -203,7 +203,7 @@ export interface TaskEvaluation {
 // ------------------------------------
 
 export interface OutboundMessageInsert {
-  gym_id: string
+  account_id: string
   task_id: string | null
   sent_by_agent: string
   channel: MessageChannel
@@ -223,7 +223,7 @@ export interface OutboundMessageInsert {
 // ------------------------------------
 
 export interface CreateTaskParams {
-  gymId: string
+  accountId: string
   assignedAgent: AgentName
   taskType: string
   memberEmail?: string
@@ -242,7 +242,7 @@ export interface UpdateTaskStatusOpts {
 }
 
 export interface AppendConversationParams {
-  gymId: string
+  accountId: string
   role: ConversationRole
   content: string
   agentName?: string
@@ -250,7 +250,7 @@ export interface AppendConversationParams {
 }
 
 export interface PublishEventParams {
-  gymId: string
+  accountId: string
   eventType: AgentEventType
   aggregateId: string
   aggregateType: string

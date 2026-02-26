@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
-const DEMO_GYM_ID = '00000000-0000-0000-0000-000000000001'
+const DEMO_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001'
 const COST_PER_RUN_USD = 0.003
 const AVG_MEMBER_VALUE_USD = 150
 const RETENTION_RATE = 0.30
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     .from('task_conversations')
     .select('id, task_id, created_at')
     .eq('role', 'agent')
-    .eq('gym_id', DEMO_GYM_ID)
+    .eq('account_id', DEMO_ACCOUNT_ID)
     .gte('created_at', since)
 
   // Count inbound member replies
@@ -29,14 +29,14 @@ export async function GET(req: NextRequest) {
     .from('task_conversations')
     .select('id, task_id')
     .eq('role', 'member')
-    .eq('gym_id', DEMO_GYM_ID)
+    .eq('account_id', DEMO_ACCOUNT_ID)
     .gte('created_at', since)
 
   // Count resolved tasks (goal achieved)
   const { data: resolvedTasks } = await supabaseAdmin
     .from('agent_tasks')
     .select('id, outcome_score, resolved_at')
-    .eq('gym_id', DEMO_GYM_ID)
+    .eq('account_id', DEMO_ACCOUNT_ID)
     .in('status', ['resolved'])
     .not('resolved_at', 'is', null)
     .gte('resolved_at', since)

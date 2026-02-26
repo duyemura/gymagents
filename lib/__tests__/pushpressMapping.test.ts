@@ -3,7 +3,7 @@
  *
  * TDD tests for the PushPress Platform API data mapping logic.
  * Tests the pure transformation functions that convert real API
- * response shapes into GymSnapshot / MemberData.
+ * response shapes into AccountSnapshot / MemberData.
  *
  * Written against the real OpenAPI spec (openapi.json):
  *   - Customer.name is { first, last, nickname } — NOT firstName/lastName

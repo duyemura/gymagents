@@ -8,18 +8,18 @@ export async function GET(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
+  const { data: account } = await supabaseAdmin
+    .from('accounts')
     .select('id')
     .eq('user_id', session.id)
     .single()
 
-  if (!gym) return NextResponse.json({ connected: false, email: null })
+  if (!account) return NextResponse.json({ connected: false, email: null })
 
   const { data: gmailRecord } = await supabaseAdmin
-    .from('gym_gmail')
+    .from('account_gmail')
     .select('gmail_address')
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .single()
 
   return NextResponse.json({

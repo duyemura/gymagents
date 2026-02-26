@@ -53,7 +53,7 @@ const DEMO_SKILLS: Skill[] = [
     is_active: true,
     default_value_usd: 130,
     automation_level: 'draft_only',
-    gym_id: null,
+    account_id: null,
   },
   {
     id: 'demo-lapsed',
@@ -66,7 +66,7 @@ const DEMO_SKILLS: Skill[] = [
     is_active: true,
     default_value_usd: 390,
     automation_level: 'draft_only',
-    gym_id: null,
+    account_id: null,
   },
   {
     id: 'demo-renewal',
@@ -79,7 +79,7 @@ const DEMO_SKILLS: Skill[] = [
     is_active: true,
     default_value_usd: 130,
     automation_level: 'draft_only',
-    gym_id: null,
+    account_id: null,
   },
   {
     id: 'demo-onboarding',
@@ -92,7 +92,7 @@ const DEMO_SKILLS: Skill[] = [
     is_active: true,
     default_value_usd: 390,
     automation_level: 'draft_only',
-    gym_id: null,
+    account_id: null,
   },
   {
     id: 'demo-lead',
@@ -105,7 +105,7 @@ const DEMO_SKILLS: Skill[] = [
     is_active: true,
     default_value_usd: 260,
     automation_level: 'smart',
-    gym_id: null,
+    account_id: null,
   },
   {
     id: 'demo-referral',
@@ -118,7 +118,7 @@ const DEMO_SKILLS: Skill[] = [
     is_active: true,
     default_value_usd: 260,
     automation_level: 'draft_only',
-    gym_id: null,
+    account_id: null,
   },
   {
     id: 'demo-payment',
@@ -131,7 +131,7 @@ const DEMO_SKILLS: Skill[] = [
     is_active: true,
     default_value_usd: 0,
     automation_level: 'draft_only',
-    gym_id: null,
+    account_id: null,
   },
 ]
 

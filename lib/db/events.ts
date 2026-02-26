@@ -10,7 +10,7 @@ export async function publishEvent(params: PublishEventParams): Promise<string> 
   const { data, error } = await supabaseAdmin
     .from('agent_events')
     .insert({
-      gym_id: params.gymId,
+      account_id: params.accountId,
       event_type: params.eventType,
       aggregate_id: params.aggregateId,
       aggregate_type: params.aggregateType,
