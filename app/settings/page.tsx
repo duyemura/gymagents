@@ -1,8 +1,35 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+
+// ── Memory types ────────────────────────────────────────────────────────────
+type MemoryCategory = 'preference' | 'member_fact' | 'gym_context' | 'learned_pattern'
+
+interface GymMemory {
+  id: string
+  category: MemoryCategory
+  content: string
+  importance: number
+  source: string
+  member_id: string | null
+  created_at: string
+}
+
+const CATEGORY_LABELS: Record<MemoryCategory, string> = {
+  preference: 'Preference',
+  member_fact: 'Member Fact',
+  gym_context: 'Gym Context',
+  learned_pattern: 'Learned Pattern',
+}
+
+const CATEGORY_COLORS: Record<MemoryCategory, { color: string; bg: string }> = {
+  preference: { color: '#0063FF', bg: 'rgba(0,99,255,0.08)' },
+  gym_context: { color: '#16A34A', bg: 'rgba(22,163,74,0.08)' },
+  member_fact: { color: '#7C3AED', bg: 'rgba(124,58,237,0.08)' },
+  learned_pattern: { color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+}
 
 // Separate component so useSearchParams() is inside a Suspense boundary
 function GmailBannerFromParams({ onBanner }: { onBanner: (msg: string) => void }) {
@@ -29,9 +56,67 @@ export default function SettingsPage() {
   const [gmailConnected, setGmailConnected] = useState<string | null>(null)
   const [gmailBanner, setGmailBanner] = useState<string | null>(null)
 
+  // Memory state
+  const [memories, setMemories] = useState<GymMemory[]>([])
+  const [memoriesLoading, setMemoriesLoading] = useState(true)
+  const [newMemoryContent, setNewMemoryContent] = useState('')
+  const [newMemoryCategory, setNewMemoryCategory] = useState<MemoryCategory>('preference')
+  const [addingMemory, setAddingMemory] = useState(false)
+
+  const fetchMemories = useCallback(async () => {
+    try {
+      const res = await fetch('/api/memories')
+      if (res.ok) {
+        const json = await res.json()
+        setMemories(json.memories ?? [])
+      }
+    } catch {
+      // ignore
+    } finally {
+      setMemoriesLoading(false)
+    }
+  }, [])
+
+  const handleAddMemory = async () => {
+    if (!newMemoryContent.trim()) return
+    setAddingMemory(true)
+    try {
+      const res = await fetch('/api/memories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: newMemoryContent.trim(),
+          category: newMemoryCategory,
+        }),
+      })
+      if (res.ok) {
+        setNewMemoryContent('')
+        await fetchMemories()
+      }
+    } catch {
+      // ignore
+    } finally {
+      setAddingMemory(false)
+    }
+  }
+
+  const handleDeleteMemory = async (id: string) => {
+    try {
+      await fetch('/api/memories', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      setMemories(prev => prev.filter(m => m.id !== id))
+    } catch {
+      // ignore
+    }
+  }
+
   useEffect(() => {
     fetchData()
     fetchGmailStatus()
+    fetchMemories()
   }, [])
 
   const fetchData = async () => {
@@ -237,6 +322,108 @@ export default function SettingsPage() {
                 )}
               </div>
             </>
+          )}
+        </div>
+
+        {/* Agent Memories */}
+        <div className="bg-white border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-bold text-gray-900">Agent Memories</h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Tell your agents what to remember. They'll use these in every conversation.
+              </p>
+            </div>
+            <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+              {memories.length} {memories.length === 1 ? 'memory' : 'memories'}
+            </span>
+          </div>
+
+          {/* Add memory form */}
+          {!isDemo && (
+            <div className="mb-4 space-y-2">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newMemoryContent}
+                  onChange={e => setNewMemoryContent(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddMemory()}
+                  placeholder="e.g. Always sign off as Coach Mike"
+                  className="flex-1 text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
+                />
+                <select
+                  value={newMemoryCategory}
+                  onChange={e => setNewMemoryCategory(e.target.value as MemoryCategory)}
+                  className="text-xs border border-gray-200 bg-white px-2 py-2 focus:outline-none focus:border-blue-400 transition-colors"
+                >
+                  <option value="preference">Preference</option>
+                  <option value="gym_context">Gym Context</option>
+                  <option value="member_fact">Member Fact</option>
+                  <option value="learned_pattern">Pattern</option>
+                </select>
+                <button
+                  onClick={handleAddMemory}
+                  disabled={addingMemory || !newMemoryContent.trim()}
+                  className="text-xs font-semibold text-white px-4 py-2 hover:opacity-80 transition-opacity disabled:opacity-50"
+                  style={{ backgroundColor: '#0063FF' }}
+                >
+                  {addingMemory ? 'Adding...' : 'Add'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Memory list */}
+          {memoriesLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="animate-pulse bg-gray-100 h-10" />
+              ))}
+            </div>
+          ) : memories.length === 0 ? (
+            <div className="text-center py-6">
+              <p className="text-sm text-gray-400">No memories yet.</p>
+              <p className="text-xs text-gray-300 mt-1">Add one above — agents will use it in every outreach.</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {memories.map(memory => (
+                <div key={memory.id} className="flex items-start justify-between py-2 px-3 border border-gray-100 group hover:bg-gray-50 transition-colors">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span
+                        className="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5 flex-shrink-0"
+                        style={{
+                          color: CATEGORY_COLORS[memory.category]?.color ?? '#6B7280',
+                          backgroundColor: CATEGORY_COLORS[memory.category]?.bg ?? '#F3F4F6',
+                        }}
+                      >
+                        {CATEGORY_LABELS[memory.category] ?? memory.category}
+                      </span>
+                      {memory.source === 'agent' && (
+                        <span className="text-[10px] font-medium text-gray-300 px-2 py-0.5" style={{ backgroundColor: '#F3F4F6' }}>
+                          Agent
+                        </span>
+                      )}
+                      {memory.source === 'system' && (
+                        <span className="text-[10px] font-medium text-gray-300 px-2 py-0.5" style={{ backgroundColor: '#F3F4F6' }}>
+                          System
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-700 truncate">{memory.content}</p>
+                  </div>
+                  {!isDemo && (
+                    <button
+                      onClick={() => handleDeleteMemory(memory.id)}
+                      className="text-xs text-gray-300 hover:text-red-500 transition-colors ml-3 opacity-0 group-hover:opacity-100 flex-shrink-0 mt-1"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
