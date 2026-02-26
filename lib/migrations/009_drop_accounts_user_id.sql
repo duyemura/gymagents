@@ -17,5 +17,14 @@ WHERE a.user_id IS NOT NULL
     WHERE tm.account_id = a.id AND tm.user_id = a.user_id
   );
 
--- Step 2: Drop the column
+-- Step 2: Drop RLS policies that reference accounts.user_id
+-- (these policies used accounts.user_id in a subquery; rewrite to use team_members)
+DROP POLICY IF EXISTS account_memories_scope ON account_memories;
+
+-- Recreate the policy via team_members instead of accounts.user_id
+CREATE POLICY account_memories_scope ON account_memories
+  FOR ALL
+  USING (account_id IN (SELECT account_id FROM team_members WHERE user_id = auth.uid()));
+
+-- Step 3: Drop the column (now no dependent objects remain)
 ALTER TABLE accounts DROP COLUMN IF EXISTS user_id;
