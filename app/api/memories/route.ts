@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
-import { getAccountMemories, createMemory } from '@/lib/db/memories'
+import { getAccountMemories, createMemory, updateMemory } from '@/lib/db/memories'
 import { getAccountForUser } from '@/lib/db/accounts'
 
 /**
@@ -77,6 +77,60 @@ export async function POST(req: NextRequest) {
   })
 
   return NextResponse.json({ memory }, { status: 201 })
+}
+
+/**
+ * PATCH /api/memories — update an existing memory
+ */
+export async function PATCH(req: NextRequest) {
+  const session = await getSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  if ((session as any).isDemo) {
+    return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
+  }
+
+  const account = await getAccountForUser(session.id)
+
+  if (!account) {
+    return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
+  }
+
+  const body = await req.json()
+  const { id, content, category, importance } = body
+
+  if (!id) {
+    return NextResponse.json({ error: 'id is required' }, { status: 400 })
+  }
+
+  // Verify the memory belongs to this account
+  const { data: memory } = await supabaseAdmin
+    .from('memories')
+    .select('id, account_id')
+    .eq('id', id)
+    .single()
+
+  if (!memory || memory.account_id !== account.id) {
+    return NextResponse.json({ error: 'Memory not found' }, { status: 404 })
+  }
+
+  const updates: Record<string, unknown> = {}
+  if (content !== undefined) updates.content = content.trim()
+  if (category !== undefined) updates.category = category.trim()
+  if (importance !== undefined) {
+    if (typeof importance !== 'number' || importance < 1 || importance > 5) {
+      return NextResponse.json({ error: 'importance must be 1-5' }, { status: 400 })
+    }
+    updates.importance = importance
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
+  }
+
+  const updated = await updateMemory(id, updates)
+
+  return NextResponse.json({ memory: updated })
 }
 
 /**
