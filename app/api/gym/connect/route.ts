@@ -6,6 +6,9 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { encrypt } from '@/lib/encrypt'
 import { createPushPressClient, getMemberStats } from '@/lib/pushpress'
 import { registerGymAgentsWebhook } from '@/lib/pushpress-sdk'
+import { bootstrapBusinessProfile } from '@/lib/agents/bootstrap'
+import { callClaude } from '@/lib/claude'
+import { HAIKU } from '@/lib/models'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -198,6 +201,12 @@ export async function POST(req: NextRequest) {
         })
       }
     }
+
+    // Bootstrap business profile — fire-and-forget, never blocks connect response
+    bootstrapBusinessProfile(
+      { accountId: account.id, accountName, memberCount },
+      { claude: { evaluate: (system, prompt) => callClaude(system, prompt, HAIKU) } },
+    ).catch(err => console.error('[connect] Bootstrap failed:', (err as Error).message))
 
     return NextResponse.json({
       success: true,

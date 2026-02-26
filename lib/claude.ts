@@ -22,6 +22,33 @@ const anthropic = new Proxy({} as Anthropic, {
   },
 })
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Simple text evaluator (no tools, no loop)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Call Claude and return raw text. Use for single-shot prompts that don't
+ * need tool use or multi-turn conversation.
+ *
+ * Recommended: pass HAIKU for lightweight tasks (classification, profiling).
+ * Defaults to SONNET if model is omitted.
+ */
+export async function callClaude(
+  system: string,
+  prompt: string,
+  model: string = SONNET,
+  maxTokens = 2000,
+): Promise<string> {
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  const content = response.content[0]
+  return content.type === 'text' ? content.text : ''
+}
+
 // Path to the PP MCP server binary (installed as dep in the Next.js app)
 const PP_MCP_BIN = require.resolve('@pushpress/pushpress/bin/mcp-server.js')
 
