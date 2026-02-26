@@ -116,4 +116,6 @@ FROM public.accounts
 WHERE user_id IS NOT NULL
 ON CONFLICT (account_id, user_id) DO NOTHING;
 
-RAISE NOTICE 'Migration 008 complete: gyms → accounts, team_members created and backfilled.';
+DO $$ BEGIN
+  RAISE NOTICE 'Migration 008 complete: gyms → accounts, team_members created and backfilled.';
+END $$;
