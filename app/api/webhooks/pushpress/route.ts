@@ -290,14 +290,7 @@ async function runSubscribedAgent(
       eventPayload: eventData
     })
 
-    // Store the action
-    await supabaseAdmin.from('agent_actions').insert({
-      agent_run_id: run!.id,
-      action_type: autopilot.action_type ?? 'draft_message',
-      content: result.output,
-      approved: null,
-      dismissed: null
-    })
+    // Output stored in agent_runs.output below
 
     // Complete the run
     await supabaseAdmin

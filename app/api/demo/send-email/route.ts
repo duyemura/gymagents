@@ -1,13 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { Resend } from 'resend'
-import { createClient } from '@supabase/supabase-js'
+import { createTask, appendConversation, DEMO_GYM_ID } from '@/lib/db/tasks'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function POST(req: NextRequest) {
   const session = await getSession() as any
@@ -50,15 +46,28 @@ export async function POST(req: NextRequest) {
     .replace(/>/g, '&gt;')
     .replace(/\n/g, '<br>')
 
-  // Generate IDs for reply threading
-  // replyToken is what goes in the email address — must be unique per send
-  // actionUuid is the real DB row id (uuid format)
-  const actionUuid = crypto.randomUUID()
-  // Use the UUID (url-safe, unique) as the reply token — no more hash collisions
-  const replyToken = `d${actionUuid.replace(/-/g, '').slice(0, 20)}`
-  const replyTo = `reply+${replyToken}@lunovoria.resend.app`
-
   try {
+    // Create agent_task first — its UUID becomes the reply token
+    const task = await createTask({
+      gymId: DEMO_GYM_ID,
+      assignedAgent: 'retention',
+      taskType: 'churn_risk',
+      memberEmail: toEmail,
+      memberName: visitorName || toEmail.split('@')[0],
+      goal: 'Re-engage the member and get them back into the gym',
+      context: {
+        source: 'demo',
+        isDemo: true,
+        automationLevel,
+        gymName: 'PushPress East (Demo)',
+        draftedMessage: message,
+        messageSubject: subject,
+      },
+      requiresApproval: false,
+    })
+
+    const replyTo = `reply+${task.id}@lunovoria.resend.app`
+
     const { data, error } = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || 'GymAgents <noreply@lunovoria.resend.app>',
       replyTo,
@@ -127,48 +136,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to send email', detail: error }, { status: 500 })
     }
 
-    // Store a minimal agent_actions row so the reply agent can find it
-    // action_id in agent_conversations uses replyToken (text) to match the reply-to address
-    // agent_actions.id uses a real UUID (required by schema)
+    // Seed outbound conversation
     try {
-      const { error: insertErr } = await supabase.from('agent_actions').insert({
-        id: actionUuid,
-        action_type: 'email',
-        // Store everything in content (jsonb) — no metadata column exists
-        content: {
-          memberEmail: toEmail,
-          memberName: visitorName || toEmail.split('@')[0],
-          draftedMessage: message,
-          messageSubject: subject,
-          recommendedAction: 'Re-engage the member and get them back into the gym',
-          riskLevel: 'medium',
-          // Demo context embedded in content
-          _isDemo: true,
-          _replyToken: replyToken,
-          _gymId: 'demo',
-          _gymName: 'PushPress East (Demo)',
-          _automationLevel: automationLevel,
-          _playbookName: 'At-Risk Re-engagement',
-        },
+      await appendConversation(task.id, {
+        gymId: DEMO_GYM_ID,
+        role: 'agent',
+        content: message,
+        agentName: 'retention',
       })
-      if (insertErr) console.error('demo send: agent_actions insert error:', insertErr.message)
-
-      // Store outbound in conversations — keyed by replyToken so webhook can match
-      const { error: convErr } = await supabase.from('agent_conversations').insert({
-        action_id: replyToken,
-        gym_id: 'demo',
-        role: 'outbound',
-        text: message,
-        member_email: toEmail,
-        member_name: visitorName || toEmail.split('@')[0],
-      })
-      if (convErr) console.error('demo send: agent_conversations insert error:', convErr.message)
-
     } catch (dbErr) {
-      console.log('demo send: db insert failed (non-fatal):', dbErr)
+      console.log('demo send: conversation insert failed (non-fatal):', dbErr)
     }
 
-    return NextResponse.json({ sent: true, emailId: data?.id, replyToken, actionUuid })
+    return NextResponse.json({ sent: true, emailId: data?.id, taskId: task.id })
   } catch (err) {
     console.error('Send email exception:', err)
     return NextResponse.json({ error: 'Unexpected error sending email' }, { status: 500 })
