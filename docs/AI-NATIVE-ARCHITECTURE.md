@@ -4,6 +4,26 @@ _Why our agents should reason about data instead of running formulas, and how to
 
 ---
 
+## Why This Matters: Any Business, Any Type, Any Future
+
+GymAgents is built on PushPress today. But the fundamental problem we solve — *a business with recurring clients who disengage over time* — is universal. CrossFit boxes, yoga studios, BJJ academies, Pilates studios, martial arts schools, dance studios, coworking spaces, personal training studios — they all share the same pattern: subscribers who pay monthly, show up (or don't), and churn when engagement drops.
+
+**Every piece of hardcoded gym logic is a wall that blocks the next customer.**
+
+When we write `if (daysSinceCheckin > 14)`, we're assuming check-ins are the signal. A yoga studio might track class bookings. A BJJ school tracks belt-test attendance. A personal training studio tracks scheduled sessions. Our 14-day threshold is wrong for all of them.
+
+When we write `task_type: 'churn_risk' | 'win_back' | 'payment_failed'`, we're pre-deciding what matters. A BJJ school where a student misses their belt test has a situation we never anticipated. There's no `missed_milestone` type. The student churns silently because our hardcoded categories didn't see it coming.
+
+When we write `case 'customer.status.changed':` in a switch statement, we're only reacting to events we anticipated, from one platform. A future Mindbody connector fires different event names. Nothing happens.
+
+**The architecture must support the full range of business types from day one** — not as a future refactor, but as a design constraint on every piece of code written now.
+
+The mechanism for this is simple: **AI reasons about data, code handles infrastructure**. The AI can figure out what "at risk" means for a yoga studio without us writing yoga-specific logic. It can interpret a Mindbody event without a PushPress-specific handler. It can identify a milestone moment without a hardcoded category for it. All it needs is the data, the context, and the skill files that describe what we know about retaining clients.
+
+See `docs/SELF_IMPROVING_SYSTEM.md` for how the system accumulates that context over time and gets better for each business without code changes.
+
+---
+
 ## The Problem
 
 GymAgents is an AI product built on hardcoded domain logic. The AI drafts messages (good) but a TypeScript function decides *who* to message (bad). The scoring, categorization, timing, and routing are all hand-coded formulas that:
@@ -373,10 +393,39 @@ At $0.08 per analysis run × 4 runs/day × 500 gyms = **~$160/month** at scale. 
 
 ---
 
+## New Code Checklist
+
+Before writing or merging any new code, verify against this list:
+
+**Stop and reconsider if you are:**
+- [ ] Adding a numeric threshold (`> 14 days`, `score += 0.45`) — the AI should assess what's abnormal for this business
+- [ ] Adding a new value to an `InsightType` or `task_type` enum — is this a categorization the AI should make?
+- [ ] Adding a `case 'some.event':` to a switch statement — can the AI evaluate this event in context?
+- [ ] Writing gym/member/checkin language inside an agent class — belongs in a skill file, not in code
+- [ ] Using `PPCustomer`, `PPCheckin`, or other connector-specific types in the agent layer — these belong only in the connector layer
+- [ ] Hardcoding a message cadence (`day 0, day 3, day 10`) — the AI should decide timing based on context
+- [ ] Creating a constant like `const COACH_VOICE = '...'` — belongs in a skill file or business memory
+
+**These are correct to hardcode:**
+- [x] Security: `gym_id` scoping, auth checks, encryption
+- [x] Safety rails: daily send limits, opt-out enforcement, escalation tripwires
+- [x] Infrastructure: command bus, retry logic, webhook handling, cron scheduling
+- [x] Attribution: "did they return within 14 days?" — needs a concrete, consistent definition
+- [x] Command types: `SendEmail`, `SendSMS`, `CreateTask` — these are plumbing actions, not decisions
+
+**Ask before writing:**
+> "Should the AI be reasoning about this, or does this genuinely belong in code?"
+
+If it's domain knowledge (what's risky, what's urgent, what to say, when to act) → AI reasons from context.
+If it's infrastructure (how to deliver, how to store, how to retry, how to secure) → hardcode it.
+
+---
+
 ## The Payoff
 
-1. **Every gym gets personalized analysis** — the AI learns what's normal for *this* gym and flags deviations
-2. **New task types without code changes** — the AI invents categories as needed, skill files guide approach
-3. **New data sources without rewrites** — any connector that produces `Person`/`Visit`/`Subscription` works
-4. **The system gets smarter** — outcomes feed back into memories, memories guide future analysis
-5. **Domain-agnostic foundation** — a coworking space, a martial arts school, a dance studio all fit the same model
+1. **Any gym type works without new code** — CrossFit, yoga, BJJ, Pilates, martial arts — the AI reads the data and context, no gym-specific handlers required
+2. **Future verticals work from day one** — coworking spaces, salons, studios — same architecture, different connector and skill files
+3. **Every business gets personalized analysis** — the AI learns what's normal for *this* business and flags deviations, not what our thresholds assume
+4. **New situations without code changes** — the AI invents task descriptions as needed, skill files guide approach, no enum to update
+5. **New data sources without rewrites** — any connector that produces `Person`/`Visit`/`Subscription` works immediately
+6. **The system gets smarter over time** — outcomes feed back into memories, memories guide future analysis — see `docs/SELF_IMPROVING_SYSTEM.md`

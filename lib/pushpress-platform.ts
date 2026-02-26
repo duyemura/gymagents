@@ -162,6 +162,7 @@ export function ppApiHeaders(
 
 /**
  * GET from the Platform API. Handles both array and { data: [] } response shapes.
+ * Automatically follows cursor-based pagination until all pages are fetched.
  */
 export async function ppGet<T>(
   apiKey: string,
@@ -169,23 +170,43 @@ export async function ppGet<T>(
   params: Record<string, string> = {},
   companyId?: string,
 ): Promise<T[]> {
-  const url = new URL(`${PP_PLATFORM_BASE}${path}`)
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, v)
-  }
+  const MAX_PAGES = 50 // safety cap (~5,000 members at 100/page)
+  const all: T[] = []
+  let cursor: string | undefined
+  let pages = 0
 
-  const res = await fetch(url.toString(), {
-    headers: ppApiHeaders(apiKey, companyId),
-  })
+  do {
+    const url = new URL(`${PP_PLATFORM_BASE}${path}`)
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, v)
+    }
+    if (cursor) url.searchParams.set('cursor', cursor)
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`PushPress Platform API ${res.status} ${path}: ${text}`)
-  }
+    const res = await fetch(url.toString(), {
+      headers: ppApiHeaders(apiKey, companyId),
+    })
 
-  const body = await res.json()
-  // API returns either [...] or { data: [...] }
-  return (Array.isArray(body) ? body : (body.data ?? [])) as T[]
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`PushPress Platform API ${res.status} ${path}: ${text}`)
+    }
+
+    const body = await res.json()
+
+    // API returns either [...] or { data: [...], cursor?: string }
+    const items = (Array.isArray(body) ? body : (body.data ?? [])) as T[]
+    all.push(...items)
+
+    // Advance cursor — check common field names
+    cursor = body.cursor ?? body.nextCursor ?? body.next_cursor ?? undefined
+
+    // If the response was a plain array, no pagination to follow
+    if (Array.isArray(body)) break
+
+    pages++
+  } while (cursor && pages < MAX_PAGES)
+
+  return all
 }
 
 // ── mapCustomer ───────────────────────────────────────────────────────────────
@@ -195,9 +216,19 @@ export async function ppGet<T>(
  * Handles the nested name object and memberSince fallback.
  */
 export function mapCustomer(customer: PPCustomer): MappedCustomer {
-  const first = customer.name.first ?? ''
-  const last = customer.name.last ?? ''
-  const displayName = [first, last].filter(Boolean).join(' ') || customer.email || customer.id
+  const first = (customer.name.first ?? '').trim()
+  const last = (customer.name.last ?? '').trim()
+  const joined = [first, last].filter(Boolean).join(' ')
+
+  // If PushPress has no real name (or only a placeholder like "Member (+3)"),
+  // derive a readable identifier from the email local-part (before @, before +)
+  const looksLikePlaceholder = !joined || /^member(\s|$)/i.test(joined)
+  const emailLocal = customer.email
+    ? customer.email.split('@')[0].replace(/\+.*$/, '').replace(/[._-]/g, ' ')
+    : ''
+  const displayName = looksLikePlaceholder
+    ? (emailLocal || customer.email || customer.id)
+    : joined
 
   const memberSince =
     customer.membershipDetails?.initialMembershipStartDate ??

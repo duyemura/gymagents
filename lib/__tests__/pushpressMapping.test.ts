@@ -121,13 +121,24 @@ describe('mapCustomer', () => {
     expect(result.name).toContain('Jones') // last name always present
   })
 
-  it('falls back to email when name is blank', () => {
+  it('falls back to email local-part when name is blank', () => {
     const customer = makeCustomer({
       name: { first: '', last: '', nickname: null },
       email: 'anon@example.com',
     })
     const result = mapCustomer(customer)
-    expect(result.name).toBe('anon@example.com')
+    // Uses the cleaner email local-part (before @) rather than the full email
+    expect(result.name).toBe('anon')
+  })
+
+  it('strips plus-alias from email local-part for placeholder names', () => {
+    const customer = makeCustomer({
+      name: { first: 'Member', last: '(+3)', nickname: null },
+      email: 'crossfitportroyalsound+3@gmail.com',
+    })
+    const result = mapCustomer(customer)
+    // "Member (+3)" is a PushPress placeholder — use email-derived name instead
+    expect(result.name).toBe('crossfitportroyalsound')
   })
 
   it('maps membershipDetails.initialMembershipStartDate → memberSince', () => {
