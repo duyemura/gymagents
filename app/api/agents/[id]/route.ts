@@ -29,13 +29,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!owned) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const body = await req.json()
-  const { name, description, skill_type, cron_schedule, system_prompt, active } = body
+  const { name, description, skill_type, cron_schedule, run_hour, system_prompt, active } = body
 
   const updates: Record<string, unknown> = {}
   if (name !== undefined) updates.name = name.trim()
   if (description !== undefined) updates.description = description?.trim() ?? null
   if (skill_type !== undefined) updates.skill_type = skill_type.trim()
   if (cron_schedule !== undefined) updates.cron_schedule = cron_schedule
+  if (run_hour !== undefined) updates.run_hour = run_hour
   if (system_prompt !== undefined) updates.system_prompt = system_prompt?.trim() || null
   if (active !== undefined) updates.is_active = active
 

@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   if (!account) return NextResponse.json({ error: 'No account connected' }, { status: 400 })
 
   const body = await req.json()
-  const { name, description, skill_type, cron_schedule, system_prompt, active } = body
+  const { name, description, skill_type, cron_schedule, run_hour, system_prompt, active } = body
 
   if (!name?.trim()) return NextResponse.json({ error: 'name is required' }, { status: 400 })
   if (!skill_type?.trim()) return NextResponse.json({ error: 'skill_type is required' }, { status: 400 })
@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
       skill_type: skill_type.trim(),
       trigger_mode: 'cron',
       cron_schedule: cron_schedule ?? 'daily',
+      run_hour: run_hour ?? 9,
       system_prompt: system_prompt?.trim() || null,
       is_active: active ?? true,
       action_type: 'draft_message',

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 interface Agent {
   id: string
@@ -10,6 +10,7 @@ interface Agent {
   skill_type?: string
   trigger_mode?: string
   cron_schedule?: string
+  run_hour?: number
   system_prompt?: string
   action_type?: string
   last_run_at?: string | null
@@ -25,11 +26,30 @@ interface AgentEditorProps {
 }
 
 const SCHEDULE_OPTIONS = [
-  { value: 'daily', label: 'Daily (1am)' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly (Monday)' },
   { value: 'hourly', label: 'Hourly' },
   { value: 'event', label: 'On event (real-time)' },
-  { value: 'weekly', label: 'Weekly (Monday 9am)' },
 ]
+
+// 12-hour display for hours 0–23
+function hourLabel(h: number): string {
+  if (h === 0) return '12:00 AM'
+  if (h === 12) return '12:00 PM'
+  return h < 12 ? `${h}:00 AM` : `${h - 12}:00 PM`
+}
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({ value: i, label: hourLabel(i) }))
+
+// Blinking cursor shown during streaming
+function Cursor() {
+  return (
+    <span
+      className="inline-block w-0.5 h-3.5 ml-0.5 animate-pulse align-middle"
+      style={{ backgroundColor: '#0063FF', verticalAlign: 'middle' }}
+    />
+  )
+}
 
 export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted }: AgentEditorProps) {
   const isNew = !agent
@@ -37,6 +57,7 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
   const [name, setName] = useState(agent?.name ?? '')
   const [description, setDescription] = useState(agent?.description ?? '')
   const [schedule, setSchedule] = useState(agent?.cron_schedule ?? 'daily')
+  const [runHour, setRunHour] = useState(agent?.run_hour ?? 9)
   const [active, setActive] = useState(agent?.active ?? true)
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt ?? '')
 
@@ -45,11 +66,16 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Prompt generation
+  const [generating, setGenerating] = useState(false)
+  const generatingRef = useRef(false)
+
   useEffect(() => {
     if (!agent) return
     setName(agent.name ?? '')
     setDescription(agent.description ?? '')
     setSchedule(agent.cron_schedule ?? 'daily')
+    setRunHour(agent.run_hour ?? 9)
     setActive(agent.active ?? true)
     setSystemPrompt(agent.system_prompt ?? '')
     setSaved(false)
@@ -72,10 +98,9 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     try {
       const payload = {
         name, description,
-        // skill_type for new agents: derived from name as a freeform slug
-        // the AI matches it semantically — no hardcoded enum needed
         ...(isNew ? { skill_type: name.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') } : {}),
         cron_schedule: schedule,
+        run_hour: runHour,
         active,
         system_prompt: systemPrompt,
       }
@@ -116,8 +141,42 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     }
   }
 
+  const handleGeneratePrompt = async () => {
+    if (generatingRef.current || !name.trim()) return
+    generatingRef.current = true
+    setGenerating(true)
+    setSystemPrompt('')
+    setError(null)
+
+    try {
+      const res = await fetch('/api/agents/generate-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description }),
+      })
+      if (!res.ok || !res.body) throw new Error('Generation failed')
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let accumulated = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        accumulated += decoder.decode(value, { stream: true })
+        setSystemPrompt(accumulated)
+      }
+    } catch (err: any) {
+      setError(err.message ?? 'Generation failed')
+    } finally {
+      setGenerating(false)
+      generatingRef.current = false
+    }
+  }
+
   const fieldCls = "w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
   const labelCls = "text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1 block"
+  const showTimePicker = schedule === 'daily' || schedule === 'weekly'
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -188,18 +247,34 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
           />
         </div>
 
-        {/* Schedule */}
-        <div>
-          <label className={labelCls}>Schedule</label>
-          <select
-            value={schedule}
-            onChange={e => setSchedule(e.target.value)}
-            className={fieldCls + ' bg-white'}
-          >
-            {SCHEDULE_OPTIONS.map(s => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
+        {/* Schedule + time picker */}
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className={labelCls}>Schedule</label>
+            <select
+              value={schedule}
+              onChange={e => setSchedule(e.target.value)}
+              className={fieldCls + ' bg-white'}
+            >
+              {SCHEDULE_OPTIONS.map(s => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+          </div>
+          {showTimePicker && (
+            <div className="w-36">
+              <label className={labelCls}>Run at (UTC)</label>
+              <select
+                value={runHour}
+                onChange={e => setRunHour(Number(e.target.value))}
+                className={fieldCls + ' bg-white'}
+              >
+                {HOUR_OPTIONS.map(h => (
+                  <option key={h.value} value={h.value}>{h.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Active toggle */}
@@ -235,19 +310,43 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
           </button>
         </div>
 
-        {/* Custom instructions */}
+        {/* AI Prompt */}
         <div>
-          <label className={labelCls}>
-            Instructions
-            <span className="text-gray-300 normal-case font-normal ml-1">(tells the AI what to do and how to communicate)</span>
-          </label>
-          <textarea
-            value={systemPrompt}
-            onChange={e => setSystemPrompt(e.target.value)}
-            rows={5}
-            className={fieldCls + ' resize-y font-mono text-xs leading-relaxed'}
-            placeholder="Describe what this agent should do, who to contact, and how to communicate. The AI figures out the rest."
-          />
+          <div className="flex items-center justify-between mb-1">
+            <label className={labelCls} style={{ marginBottom: 0 }}>
+              AI Prompt
+              <span className="text-gray-300 normal-case font-normal tracking-normal ml-1">(system prompt sent to Claude on each run)</span>
+            </label>
+            <button
+              onClick={handleGeneratePrompt}
+              disabled={generating || !name.trim() || isDemo}
+              className="text-[10px] font-semibold tracking-widest uppercase transition-colors disabled:opacity-40"
+              style={{ color: generating ? '#0063FF' : '#9CA3AF' }}
+              onMouseEnter={e => { if (!generating && name.trim()) (e.currentTarget.style.color = '#0063FF') }}
+              onMouseLeave={e => { if (!generating) (e.currentTarget.style.color = '#9CA3AF') }}
+            >
+              {generating ? 'Writing…' : 'Generate with AI'}
+            </button>
+          </div>
+
+          {/* Streaming view while generating */}
+          {generating ? (
+            <div
+              className="w-full border border-gray-200 bg-white px-3 py-2 text-xs font-mono leading-relaxed min-h-[120px]"
+              style={{ color: '#374151' }}
+            >
+              {systemPrompt}
+              <Cursor />
+            </div>
+          ) : (
+            <textarea
+              value={systemPrompt}
+              onChange={e => setSystemPrompt(e.target.value)}
+              rows={7}
+              className={fieldCls + ' resize-y font-mono text-xs leading-relaxed'}
+              placeholder={`Enter a prompt or click "Generate with AI" to write one from your agent name and description.`}
+            />
+          )}
         </div>
 
         {/* Stats — edit mode only */}

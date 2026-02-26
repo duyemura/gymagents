@@ -128,6 +128,7 @@ export default function SetupPage() {
   // Step 3 — schedule
   const [selectedTrigger, setSelectedTrigger] = useState('daily')
   const [selectedEvent, setSelectedEvent] = useState('member.cancelled')
+  const [runHour, setRunHour] = useState(9)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [done, setDone] = useState(false)
@@ -234,6 +235,7 @@ export default function SetupPage() {
         trigger_mode: trigger.mode === 'manual' ? 'cron' : trigger.mode,
         trigger_event: trigger.mode === 'event' ? selectedEvent : null,
         cron_schedule: trigger.mode === 'cron' ? trigger.schedule : null,
+        run_hour: runHour,
         action_type: 'draft_message',
         data_sources: [],
         estimated_value: successMetric || '',
@@ -495,6 +497,22 @@ export default function SetupPage() {
                   )
                 })}
               </div>
+
+              {(selectedTrigger === 'daily' || selectedTrigger === 'weekly') && (
+                <div className="mb-4">
+                  <label className={labelCls}>Run at (UTC)</label>
+                  <select
+                    value={runHour}
+                    onChange={e => setRunHour(Number(e.target.value))}
+                    className={fieldCls + ' bg-white'}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => {
+                      const label = i === 0 ? '12:00 AM' : i === 12 ? '12:00 PM' : i < 12 ? `${i}:00 AM` : `${i - 12}:00 PM`
+                      return <option key={i} value={i}>{label}</option>
+                    })}
+                  </select>
+                </div>
+              )}
 
               {selectedTrigger === 'event' && (
                 <div className="mb-4">

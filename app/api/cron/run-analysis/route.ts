@@ -107,15 +107,29 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       }
 
       // Fetch active cron-triggered agents for this account
-      const { data: agents } = await supabaseAdmin
+      // Filter by run_hour so daily/weekly agents only fire at the owner's chosen time
+      const currentUTCHour = new Date().getUTCHours()
+      const { data: agentsRaw } = await supabaseAdmin
         .from('agents')
-        .select('id, skill_type, system_prompt, name')
+        .select('id, skill_type, system_prompt, name, cron_schedule, run_hour')
         .eq('account_id', account.id)
         .eq('is_active', true)
         .in('trigger_mode', ['cron', 'both'])
 
-      if (!agents || agents.length === 0) {
-        console.log(`[run-agents] No active agents for account ${account.id}, skipping`)
+      // Hourly agents always run; daily/weekly agents only run at their scheduled hour
+      const agents = (agentsRaw ?? []).filter(a => {
+        if (a.cron_schedule === 'hourly') return true
+        const agentHour = a.run_hour ?? 9
+        if (a.cron_schedule === 'daily') return currentUTCHour === agentHour
+        if (a.cron_schedule === 'weekly') {
+          const now = new Date()
+          return now.getUTCDay() === 1 && currentUTCHour === agentHour
+        }
+        return true
+      })
+
+      if (agents.length === 0) {
+        console.log(`[run-agents] No agents due for account ${account.id} at UTC hour ${currentUTCHour}, skipping`)
         continue
       }
 
