@@ -40,6 +40,11 @@ vi.mock('../db/tasks', () => ({
   appendConversation: vi.fn().mockResolvedValue(undefined),
 }))
 
+// ── Mock follow-up evaluator ─────────────────────────────────────────────────
+vi.mock('../follow-up-evaluator', () => ({
+  evaluateFollowUp: vi.fn().mockResolvedValue({ action: 'wait', reason: 'test', nextCheckDays: 3 }),
+}))
+
 // ── Mock sendEmail from lib/resend ───────────────────────────────────────────
 vi.mock('../resend', () => ({
   sendEmail: vi.fn().mockResolvedValue({ id: 'mock-email-id', error: null }),

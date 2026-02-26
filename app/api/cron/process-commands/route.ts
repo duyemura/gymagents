@@ -23,7 +23,7 @@ import { sendEmail } from '@/lib/resend'
 import { supabaseAdmin } from '@/lib/supabase'
 import { updateTaskStatus, appendConversation, getAutopilotSendCountToday, DAILY_AUTOPILOT_LIMIT } from '@/lib/db/tasks'
 import { sendGmailMessage, isGmailConnected } from '@/lib/gmail'
-import { draftFollowUp } from '@/lib/follow-up-drafter'
+import { evaluateFollowUp } from '@/lib/follow-up-evaluator'
 import { Resend } from 'resend'
 
 async function handler(req: NextRequest): Promise<NextResponse> {
@@ -178,9 +178,11 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    // 3. Process follow-ups — any task past next_action_at with no reply
-    //    Not limited to win_back — any task type can have follow-up sequences.
+    // 3. Process follow-ups — any task past next_action_at with no reply.
+    //    The AI evaluates each task and decides: follow up, close, escalate, or wait.
+    //    No hardcoded cadence logic — the skill file guides the AI's decision.
     let followUpsSent = 0
+    let followUpsClosed = 0
     const { data: followUpTasks } = await supabaseAdmin
       .from('agent_tasks')
       .select('*')
@@ -193,7 +195,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const memberEmail = task.member_email
       if (!memberEmail) continue
 
-      // Check opt-out
+      // Check opt-out (infrastructure — never AI-driven)
       const { data: optout } = await supabaseAdmin
         .from('communication_optouts')
         .select('id')
@@ -204,42 +206,22 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
       if (optout) {
         await updateTaskStatus(task.id, 'resolved', {
-          outcome: 'churned',
+          outcome: 'not_applicable',
           outcomeReason: 'Contact opted out of email',
         })
         continue
       }
 
-      // Determine follow-up touch number from conversation count
+      // Gather context for the AI evaluator
       const { count: msgCount } = await supabaseAdmin
         .from('task_conversations')
         .select('*', { count: 'exact', head: true })
         .eq('task_id', task.id)
         .eq('role', 'agent')
 
-      const touchNumber = (msgCount ?? 0) + 1
-
-      if (touchNumber >= 4) {
-        // Touch 3 was the last — close as churned
-        await updateTaskStatus(task.id, 'resolved', {
-          outcome: 'churned',
-          outcomeReason: 'No response after 3 win-back touches',
-        })
-        console.log(`[process-commands] Follow-up sequence complete, closed as churned: task ${task.id}`)
-        continue
-      }
-
-      // Set next follow-up timing
-      // Touch 1: immediate (already sent), Touch 2: day 3, Touch 3: day 10
-      const nextDays = touchNumber === 2 ? 7 : 0 // Touch 2→3 is 7 more days
-      const nextActionAt = nextDays > 0
-        ? new Date(Date.now() + nextDays * 24 * 60 * 60 * 1000)
-        : undefined
-
-      // Load conversation history for context
       const { data: convoRows } = await supabaseAdmin
         .from('task_conversations')
-        .select('role, content')
+        .select('role, content, created_at')
         .eq('task_id', task.id)
         .order('created_at', { ascending: true })
 
@@ -247,82 +229,115 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         .filter((r: any) => r.role === 'agent' || r.role === 'member')
         .map((r: any) => ({ role: r.role as 'agent' | 'member', content: r.content }))
 
+      // Calculate days since last outbound message
+      const lastAgentMsg = (convoRows ?? [])
+        .filter((r: any) => r.role === 'agent')
+        .pop()
+      const daysSinceLastMessage = lastAgentMsg?.created_at
+        ? Math.floor((Date.now() - new Date(lastAgentMsg.created_at).getTime()) / 86_400_000)
+        : 0
+
       const taskCtx = (task.context ?? {}) as Record<string, unknown>
-      const followUpMessage = await draftFollowUp({
+
+      // Ask the AI: should we follow up, close, escalate, or wait?
+      const decision = await evaluateFollowUp({
         taskType: task.task_type ?? 'churn_risk',
-        touchNumber,
         accountId: task.gym_id,
         memberName: task.member_name ?? 'there',
-        memberEmail: memberEmail,
+        memberEmail,
         conversationHistory,
+        messagesSent: msgCount ?? 0,
+        daysSinceLastMessage,
         accountName: (taskCtx.accountName as string) ?? undefined,
         memberContext: (taskCtx.detail as string) ?? (taskCtx.riskReason as string) ?? undefined,
       })
 
-      try {
-        // Send via Gmail if connected, else Resend
-        let providerId: string | undefined
-        const gmailAddress = await isGmailConnected(task.gym_id)
-        if (gmailAddress) {
-          const result = await sendGmailMessage({
-            accountId: task.gym_id,
-            to: memberEmail,
-            subject: 'Re: Checking in',
-            body: followUpMessage,
-          })
-          providerId = result?.messageId ?? undefined
-        } else {
-          const result = await resend.emails.send({
-            from: process.env.RESEND_FROM_EMAIL!,
-            replyTo: `reply+${task.id}@lunovoria.resend.app`,
-            to: memberEmail,
-            subject: 'Re: Checking in',
-            html: `<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333;">
-              <p>${followUpMessage}</p>
-            </div>`,
-          })
-          providerId = result?.data?.id ?? undefined
-        }
-
-        // Track in outbound_messages
-        try {
-          await dbCommands.createOutboundMessage({
-            account_id: task.gym_id,
-            task_id: task.id,
-            sent_by_agent: 'retention',
-            channel: 'email',
-            recipient_email: memberEmail,
-            recipient_name: task.member_name ?? null,
-            subject: 'Re: Checking in',
-            body: followUpMessage,
-            reply_token: task.id,
-            status: 'sent',
-            provider: gmailAddress ? null : 'resend',
-            provider_message_id: providerId ?? null,
-          })
-        } catch (err: any) {
-          console.warn(`[process-commands] Failed to log outbound_message for follow-up ${task.id}:`, err?.message)
-        }
-
-        await appendConversation(task.id, {
-          accountId: task.gym_id,
-          role: 'agent',
-          content: followUpMessage,
-          agentName: 'retention',
+      // Execute the AI's decision — the cron is just infrastructure
+      if (decision.action === 'close') {
+        await updateTaskStatus(task.id, 'resolved', {
+          outcome: decision.outcome ?? 'unresponsive',
+          outcomeReason: decision.reason,
         })
+        followUpsClosed++
+        console.log(`[process-commands] AI closed task ${task.id}: ${decision.reason}`)
 
-        if (nextActionAt) {
+      } else if (decision.action === 'escalate') {
+        await updateTaskStatus(task.id, 'escalated', {
+          outcome: 'escalated',
+          outcomeReason: decision.reason,
+        })
+        console.log(`[process-commands] AI escalated task ${task.id}: ${decision.reason}`)
+
+      } else if (decision.action === 'wait') {
+        const nextActionAt = new Date(Date.now() + (decision.nextCheckDays ?? 3) * 86_400_000)
+        await updateTaskStatus(task.id, 'awaiting_reply', { nextActionAt })
+        console.log(`[process-commands] AI decided to wait ${decision.nextCheckDays ?? 3}d for task ${task.id}: ${decision.reason}`)
+
+      } else if (decision.action === 'follow_up' && decision.message) {
+        try {
+          // Send the AI-drafted follow-up via Gmail or Resend
+          let providerId: string | undefined
+          const gmailAddress = await isGmailConnected(task.gym_id)
+          if (gmailAddress) {
+            const result = await sendGmailMessage({
+              accountId: task.gym_id,
+              to: memberEmail,
+              subject: 'Re: Checking in',
+              body: decision.message,
+            })
+            providerId = result?.messageId ?? undefined
+          } else {
+            const result = await resend.emails.send({
+              from: process.env.RESEND_FROM_EMAIL!,
+              replyTo: `reply+${task.id}@lunovoria.resend.app`,
+              to: memberEmail,
+              subject: 'Re: Checking in',
+              html: `<div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; color: #333;">
+                <p>${decision.message}</p>
+              </div>`,
+            })
+            providerId = result?.data?.id ?? undefined
+          }
+
+          // Track in outbound_messages
+          try {
+            await dbCommands.createOutboundMessage({
+              account_id: task.gym_id,
+              task_id: task.id,
+              sent_by_agent: 'retention',
+              channel: 'email',
+              recipient_email: memberEmail,
+              recipient_name: task.member_name ?? null,
+              subject: 'Re: Checking in',
+              body: decision.message,
+              reply_token: task.id,
+              status: 'sent',
+              provider: gmailAddress ? null : 'resend',
+              provider_message_id: providerId ?? null,
+            })
+          } catch (err: any) {
+            console.warn(`[process-commands] Failed to log outbound_message for follow-up ${task.id}:`, err?.message)
+          }
+
+          await appendConversation(task.id, {
+            accountId: task.gym_id,
+            role: 'agent',
+            content: decision.message,
+            agentName: 'retention',
+          })
+
+          const nextActionAt = new Date(Date.now() + (decision.nextCheckDays ?? 7) * 86_400_000)
           await updateTaskStatus(task.id, 'awaiting_reply', { nextActionAt })
-        }
 
-        followUpsSent++
-        console.log(`[process-commands] Win-back follow-up #${touchNumber} sent via ${gmailAddress ? 'gmail' : 'resend'} for task ${task.id}`)
-      } catch (err: any) {
-        console.error(`[process-commands] Win-back follow-up failed for task ${task.id}:`, err?.message)
+          followUpsSent++
+          console.log(`[process-commands] Follow-up sent via ${gmailAddress ? 'gmail' : 'resend'} for task ${task.id}, next check in ${decision.nextCheckDays ?? 7}d`)
+        } catch (err: any) {
+          console.error(`[process-commands] Follow-up send failed for task ${task.id}:`, err?.message)
+        }
       }
     }
 
-    return NextResponse.json({ ...commandResult, autopilotSent, autopilotSkipped, followUpsSent, ok: true })
+    return NextResponse.json({ ...commandResult, autopilotSent, autopilotSkipped, followUpsSent, followUpsClosed, ok: true })
   } catch (err: any) {
     console.error('process-commands cron error:', err?.message)
     return NextResponse.json({ error: err?.message ?? 'internal error' }, { status: 500 })
