@@ -4,7 +4,10 @@ import { supabaseAdmin } from '../supabase'
 // Types
 // ============================================================
 
-export type MemoryCategory = 'preference' | 'member_fact' | 'gym_context' | 'learned_pattern'
+// Open string type — the AI can invent any category it needs.
+// Well-known values below are hints for autocomplete and UI labelling only.
+export type MemoryCategory = string
+export const WELL_KNOWN_CATEGORIES = ['preference', 'member_fact', 'gym_context', 'learned_pattern'] as const
 export type MemorySource = 'owner' | 'agent' | 'system'
 
 export interface AccountMemory {
@@ -179,6 +182,11 @@ export async function getMemoriesForPrompt(
 const CATEGORY_LABELS: Record<string, string> = {
   preference: 'Owner Preferences',
   member_fact: 'Member Notes',
-  gym_context: 'Gym Context',
+  gym_context: 'Business Context',
   learned_pattern: 'Learned Patterns',
+}
+
+/** Readable label for any category — falls back to title-casing the raw value. */
+export function categoryLabel(category: string): string {
+  return CATEGORY_LABELS[category] ?? category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }

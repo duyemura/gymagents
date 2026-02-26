@@ -219,7 +219,7 @@ describe('getMemoriesForPrompt', () => {
     expect(result).toContain('### Owner Preferences')
     expect(result).toContain('- Use casual tone')
     expect(result).toContain('- Sign off as Coach Mike')
-    expect(result).toContain('### Gym Context')
+    expect(result).toContain('### Business Context')
     expect(result).toContain('- Peak churn in January')
   })
 

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 
 interface Memory {
   id: string
-  category: 'preference' | 'member_fact' | 'gym_context' | 'learned_pattern'
+  category: string   // open — AI can use any category
   content: string
   importance: number
   scope: string
@@ -17,6 +17,8 @@ interface Memory {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+// Well-known categories get specific labels, colors, and descriptions.
+// Any category the AI invents falls through to the fallback.
 const CATEGORY_CONFIG: Record<string, { label: string; color: string; description: string }> = {
   gym_context: {
     label: 'Business Context',
@@ -39,6 +41,18 @@ const CATEGORY_CONFIG: Record<string, { label: string; color: string; descriptio
     description: 'Patterns the AI has observed over time — what works for your community.',
   },
 }
+
+const FALLBACK_CONFIG = { color: '#6B7280', description: 'Additional context the AI has stored.' }
+
+function categoryConfig(category: string) {
+  return CATEGORY_CONFIG[category] ?? {
+    ...FALLBACK_CONFIG,
+    label: category.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+  }
+}
+
+// Well-known display order — unknown categories appear after these
+const KNOWN_ORDER = ['gym_context', 'preference', 'member_fact', 'learned_pattern']
 
 const SOURCE_LABELS: Record<string, { label: string; color: string }> = {
   agent: { label: 'AI', color: '#0063FF' },
@@ -98,8 +112,7 @@ function MemoryCard({ memory }: { memory: Memory }) {
 }
 
 function CategorySection({ category, memories }: { category: string; memories: Memory[] }) {
-  const config = CATEGORY_CONFIG[category]
-  if (!config) return null
+  const config = categoryConfig(category)
 
   return (
     <div className="mb-8">
@@ -137,9 +150,13 @@ export default function MemoriesPanel() {
       })
   }, [])
 
-  // Group by category in a fixed display order
-  const order: Memory['category'][] = ['gym_context', 'preference', 'member_fact', 'learned_pattern']
-  const grouped = order.reduce<Record<string, Memory[]>>((acc, cat) => {
+  // Group by category: known ones first in display order, unknowns after
+  const allCategories = [...new Set(memories.map(m => m.category))]
+  const ordered = [
+    ...KNOWN_ORDER.filter(c => allCategories.includes(c)),
+    ...allCategories.filter(c => !KNOWN_ORDER.includes(c)),
+  ]
+  const grouped = ordered.reduce<Record<string, Memory[]>>((acc, cat) => {
     const items = memories.filter(m => m.category === cat)
     if (items.length > 0) acc[cat] = items
     return acc

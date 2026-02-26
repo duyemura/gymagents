@@ -5,9 +5,6 @@ import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAccountMemories, createMemory } from '@/lib/db/memories'
 import { getAccountForUser } from '@/lib/db/accounts'
-import type { MemoryCategory } from '@/lib/db/memories'
-
-const VALID_CATEGORIES: MemoryCategory[] = ['preference', 'member_fact', 'gym_context', 'learned_pattern']
 
 /**
  * GET /api/memories — list all active memories for the authenticated gym
@@ -26,7 +23,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
   }
 
-  const category = req.nextUrl.searchParams.get('category') as MemoryCategory | null
+  const category = req.nextUrl.searchParams.get('category')
   const memberId = req.nextUrl.searchParams.get('memberId') ?? undefined
 
   const memories = await getAccountMemories(account.id, {
@@ -61,11 +58,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'content is required' }, { status: 400 })
   }
 
-  if (!category || !VALID_CATEGORIES.includes(category)) {
-    return NextResponse.json(
-      { error: `category must be one of: ${VALID_CATEGORIES.join(', ')}` },
-      { status: 400 },
-    )
+  if (!category || typeof category !== 'string' || category.trim().length === 0) {
+    return NextResponse.json({ error: 'category is required' }, { status: 400 })
   }
 
   if (importance !== undefined && (typeof importance !== 'number' || importance < 1 || importance > 5)) {
