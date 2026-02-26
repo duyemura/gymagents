@@ -9,6 +9,7 @@ import { registerGymAgentsWebhook } from '@/lib/pushpress-sdk'
 import { bootstrapBusinessProfile } from '@/lib/agents/bootstrap'
 import { callClaude } from '@/lib/claude'
 import { HAIKU } from '@/lib/models'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -38,26 +39,25 @@ export async function POST(req: NextRequest) {
 
     const encryptedApiKey = encrypt(apiKey)
 
-    // ── Step 2: Look up existing gym by company ID (stable PushPress identifier)
-    // If found: transfer ownership to current user (same gym, new login).
-    // If not found: check if current user already has a gym (key rotation),
-    //               otherwise create a fresh row.
-    let gymRow: { id: string; webhook_id: string | null } | null = null
+    // ── Step 2: Find or create the account ───────────────────────────────────
+    // Look up by company ID first (stable PushPress identifier).
+    // Then check if user already has an account (key rotation).
+    // Otherwise create a new account.
+    let accountId: string | null = null
 
     if (resolvedCompanyId) {
       const { data: byCompany } = await supabaseAdmin
         .from('accounts')
-        .select('id, webhook_id')
+        .select('id')
         .eq('pushpress_company_id', resolvedCompanyId)
         .single()
 
       if (byCompany) {
-        // Gym already in DB — claim it for this user
-        console.log(`[connect] Gym ${byCompany.id} already registered, transferring to user ${session.id}`)
+        // Gym already in DB — update credentials
+        console.log(`[connect] Account ${byCompany.id} already registered, updating credentials`)
         const { error } = await supabaseAdmin
           .from('accounts')
           .update({
-            user_id: session.id,
             pushpress_api_key: encryptedApiKey,
             pushpress_company_id: resolvedCompanyId,
             account_name: accountName,
@@ -66,20 +66,16 @@ export async function POST(req: NextRequest) {
           })
           .eq('id', byCompany.id)
         if (error) {
-          console.error('[connect] Transfer failed:', error)
-          return NextResponse.json({ error: `Failed to claim gym: ${error.message}` }, { status: 500 })
+          console.error('[connect] Update failed:', error)
+          return NextResponse.json({ error: `Failed to update gym: ${error.message}` }, { status: 500 })
         }
-        gymRow = byCompany
+        accountId = byCompany.id
       }
     }
 
-    if (!gymRow) {
-      // No existing gym found by company ID — check if current user already has one (key rotation)
-      const { data: existing } = await supabaseAdmin
-        .from('accounts')
-        .select('id, webhook_id')
-        .eq('user_id', session.id)
-        .single()
+    if (!accountId) {
+      // Check if current user already owns an account (key rotation)
+      const existing = await getAccountForUser(session.id)
 
       if (existing) {
         const { error } = await supabaseAdmin
@@ -91,51 +87,46 @@ export async function POST(req: NextRequest) {
             member_count: memberCount,
             connected_at: new Date().toISOString()
           })
-          .eq('user_id', session.id)
+          .eq('id', existing.id)
         if (error) {
           console.error('[connect] Update failed:', error)
           return NextResponse.json({ error: `Failed to update gym: ${error.message}` }, { status: 500 })
         }
-        gymRow = existing
+        accountId = existing.id as string
       } else {
-        // Brand new gym
-        const { error } = await supabaseAdmin
+        // Brand new account
+        const { data: newAccount, error } = await supabaseAdmin
           .from('accounts')
           .insert({
-            user_id: session.id,
             pushpress_api_key: encryptedApiKey,
             pushpress_company_id: resolvedCompanyId,
             account_name: accountName,
             member_count: memberCount,
             connected_at: new Date().toISOString()
           })
-        if (error) {
+          .select('id')
+          .single()
+        if (error || !newAccount) {
           console.error('[connect] Insert failed:', error)
-          return NextResponse.json({ error: `Failed to save gym: ${error.message}` }, { status: 500 })
+          return NextResponse.json({ error: `Failed to save gym: ${error?.message}` }, { status: 500 })
         }
+        accountId = newAccount.id
       }
     }
 
-    // Re-fetch to get current account row (ID needed for webhook + bootstrap)
-    const { data: account } = await supabaseAdmin
-      .from('accounts')
-      .select('id, webhook_id')
-      .eq('user_id', session.id)
-      .single()
+    // ── Step 3: Ensure user is an owner in team_members ──────────────────────
+    await supabaseAdmin
+      .from('team_members')
+      .upsert(
+        { account_id: accountId, user_id: session.id, role: 'owner' },
+        { onConflict: 'account_id,user_id' }
+      )
 
-    if (!account) {
-      return NextResponse.json({ error: 'Gym was saved but could not be retrieved' }, { status: 500 })
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Auto-register GymAgents webhook with PushPress
-    // This means zero manual setup for gym owners — it just works.
-    // ──────────────────────────────────────────────────────────────────────────
+    // ── Step 4: Auto-register webhook with PushPress ─────────────────────────
     let webhookRegistered = false
     let webhookId: string | null = null
 
     try {
-      // Determine the deployment URL for the webhook
       const appUrl =
         process.env.NEXT_PUBLIC_APP_URL ||
         (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
@@ -149,13 +140,10 @@ export async function POST(req: NextRequest) {
       webhookId = result.webhookId
       webhookRegistered = true
 
-      // Store webhook ID so we can deactivate it on disconnect
-      if (account) {
-        await supabaseAdmin
-          .from('accounts')
-          .update({ webhook_id: result.webhookId })
-          .eq('id', account.id)
-      }
+      await supabaseAdmin
+        .from('accounts')
+        .update({ webhook_id: result.webhookId })
+        .eq('id', accountId)
 
       console.log(
         `[connect] Webhook ${result.alreadyExisted ? 'already existed' : 'registered'}: ${result.webhookId}`
@@ -165,21 +153,9 @@ export async function POST(req: NextRequest) {
       console.error('[connect] Webhook registration failed:', err.message)
     }
 
-    // Ensure this user is in team_members for the account
-    if (account) {
-      await supabaseAdmin
-        .from('team_members')
-        .upsert(
-          { account_id: account.id, user_id: session.id, role: 'owner' },
-          { onConflict: 'account_id,user_id' }
-        )
-    }
-
-    // No auto-seeding — owners build their own agents via the /setup wizard
-
-    // Bootstrap business profile — fire-and-forget, never blocks connect response
+    // ── Step 5: Bootstrap business profile (fire-and-forget) ─────────────────
     bootstrapBusinessProfile(
-      { accountId: account.id, accountName, memberCount },
+      { accountId, accountName, memberCount },
       { claude: { evaluate: (system, prompt) => callClaude(system, prompt, HAIKU) } },
     ).catch(err => console.error('[connect] Bootstrap failed:', (err as Error).message))
 
