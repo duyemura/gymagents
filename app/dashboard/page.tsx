@@ -324,7 +324,6 @@ function DashboardContent() {
   const agentsList = isDemo ? DEMO_AGENTS : (data?.agents ?? [])
   const acct = data?.account ?? data?.gym
   const accountName = isDemo ? 'PushPress East' : (acct?.account_name ?? acct?.gym_name ?? acct?.name ?? 'Your Gym')
-  const memberCount = acct?.member_count ?? acct?.memberCount ?? 0
   // Map autopilot_level to execution mode for UI components
   const autopilotLevel = acct?.autopilot_level ?? 'draft_only'
   const executionMode: 'manual' | 'limited_auto' = autopilotLevel === 'draft_only' ? 'manual' : 'limited_auto'
@@ -533,7 +532,6 @@ function DashboardContent() {
                 agentDescription={primaryAgentDesc}
                 status="active"
                 lastRunAt={primaryLastRunAt}
-                memberCount={memberCount}
                 onRunNow={runScan}
                 isRunning={running}
                 runLabel="Run scan"

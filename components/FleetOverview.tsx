@@ -91,7 +91,6 @@ export default function FleetOverview({ data, isDemo, isSandboxDemo }: FleetOver
       .catch(() => {})
   }, [])
 
-  const memberCount = data?.gym?.member_count ?? data?.gym?.memberCount ?? 0
   const pendingCount = data?.pendingActions?.length ?? 0
   const recentRuns = data?.recentRuns ?? []
 
@@ -112,12 +111,6 @@ export default function FleetOverview({ data, isDemo, isSandboxDemo }: FleetOver
 
       {/* 2x2 stats grid */}
       <div className="grid grid-cols-2 gap-px bg-gray-100 border-b border-gray-100">
-        <div className="bg-white px-4 py-4">
-          <p className="text-xs text-gray-400 mb-1">Members watched</p>
-          <p className="text-xl font-semibold text-gray-900">
-            {memberCount > 0 ? String(memberCount) : '—'}
-          </p>
-        </div>
         <div className="bg-white px-4 py-4">
           <p className="text-xs text-gray-400 mb-1">At risk this week</p>
           <p className="text-xl font-semibold text-gray-900">

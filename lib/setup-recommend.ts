@@ -42,7 +42,7 @@ export interface RecommendationStat {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
-interface SnapshotAnalysis {
+export interface SnapshotAnalysis {
   totalMembers: number
   activeMembers: MemberData[]
   atRiskMembers: MemberData[]         // active, attendance dropped significantly

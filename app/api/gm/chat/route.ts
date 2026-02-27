@@ -58,7 +58,6 @@ function loadSubAgentDefinitions(): string {
 
 interface GymRow {
   account_name: string
-  member_count: number
   pushpress_api_key: string | null
   pushpress_company_id: string | null
 }
@@ -67,7 +66,7 @@ async function loadAccountContext(accountId: string): Promise<AccountContext & {
   try {
     const { data } = await supabaseAdmin
       .from('accounts')
-      .select('gym_name, member_count, pushpress_api_key, pushpress_company_id')
+      .select('account_name, pushpress_api_key, pushpress_company_id')
       .eq('id', accountId)
       .single()
 
@@ -75,12 +74,11 @@ async function loadAccountContext(accountId: string): Promise<AccountContext & {
     return {
       accountId,
       accountName: row?.account_name ?? 'Your Gym',
-      memberCount: row?.member_count ?? 0,
       apiKey: row?.pushpress_api_key ?? undefined,
       companyId: row?.pushpress_company_id ?? undefined,
     }
   } catch {
-    return { accountId, accountName: 'Your Gym', memberCount: 0 }
+    return { accountId, accountName: 'Your Gym' }
   }
 }
 

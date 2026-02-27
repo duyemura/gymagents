@@ -39,7 +39,6 @@ export interface AgentPageLayoutProps {
   agentDescription?: string
   status: AgentStatus
   lastRunAt?: string
-  memberCount?: number
   onRunNow?: () => void
   isRunning?: boolean
   runLabel?: string
@@ -80,7 +79,6 @@ export default function AgentPageLayout({
   agentDescription,
   status,
   lastRunAt,
-  memberCount,
   onRunNow,
   isRunning,
   runLabel = 'Run now',
@@ -119,12 +117,6 @@ export default function AgentPageLayout({
         <div className="hidden md:flex items-center gap-3 text-xs text-gray-400">
           {lastRunAt && (
             <span>Last run: {relativeTime(lastRunAt)}</span>
-          )}
-          {memberCount !== undefined && memberCount > 0 && (
-            <>
-              <span className="text-gray-200">·</span>
-              <span>{memberCount.toLocaleString()} members</span>
-            </>
           )}
           {typeof queueCount === 'number' && queueCount > 0 && (
             <>
