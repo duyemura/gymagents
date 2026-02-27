@@ -2,10 +2,9 @@
  * pushpress-platform.ts
  *
  * PushPress Platform API v1 client — typed against the real OpenAPI spec.
- * https://api.pushpressdev.com/platform/docs/openapi.json
  *
  * Key differences from the old v3 SDK:
- *   - Base URL: https://api.pushpressdev.com/platform/v1
+ *   - Base URL: https://api.pushpress.com/platform/v1 (configurable via PUSHPRESS_PLATFORM_URL env)
  *   - Auth: API-KEY header (not Authorization: Bearer)
  *   - Customer.name is { first, last, nickname } — nested object
  *   - Checkin.customer is the UUID (not customerId)
@@ -19,7 +18,8 @@ import type { MemberData, AccountSnapshot, PaymentEvent } from './agents/GMAgent
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-export const PP_PLATFORM_BASE = 'https://api.pushpressdev.com/platform/v1'
+export const PP_PLATFORM_BASE =
+  process.env.PUSHPRESS_PLATFORM_URL || 'https://api.pushpress.com/platform/v1'
 
 // ── OpenAPI types (exact field names from spec) ────────────────────────────────
 

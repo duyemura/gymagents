@@ -332,6 +332,15 @@ function DashboardContent() {
   const atRiskAgent = agentsList.find((a: any) => a.skill_type === 'at_risk_detector')
   const gmLastRunAt: string | undefined = atRiskAgent?.last_run_at ?? data?.recentRuns?.[0]?.created_at
 
+  // Primary agent: the first real agent for this account (what the owner just created)
+  const primaryAgent = agentsList[0]
+  const primaryAgentName = isDemo ? 'GM Agent' : (primaryAgent?.name ?? 'No agents yet')
+  const primaryAgentDesc = isDemo
+    ? 'Retention · Win-Back · At-Risk'
+    : (primaryAgent?.description ?? 'Create your first agent to get started')
+  const primaryLastRunAt = isDemo ? gmLastRunAt : (primaryAgent?.last_run_at ?? data?.recentRuns?.[0]?.created_at)
+  const hasAgents = isDemo || agentsList.length > 0
+
   // Build de-duped, non-dismissed action list
   const allActions: ActionCard[] = [
     ...(data?.pendingActions || []),
@@ -517,21 +526,43 @@ function DashboardContent() {
         ) : (
           <>
             <RetentionScorecard />
-            <AgentPageLayout
-              agentName="GM Agent"
-              agentDescription="Retention · Win-Back · At-Risk"
-              status="active"
-              lastRunAt={gmLastRunAt}
-              memberCount={memberCount}
-              onRunNow={runScan}
-              isRunning={running}
-              runLabel="Run scan"
-              executionMode={executionMode}
-              queueCount={uniqueActions.length}
-              queueSlot={reviewQueueNode}
-              feedSlot={<ActivityFeed />}
-              chatSlot={gmChatNode}
-            />
+            {hasAgents ? (
+              <AgentPageLayout
+                agentName={primaryAgentName}
+                agentDescription={primaryAgentDesc}
+                status="active"
+                lastRunAt={primaryLastRunAt}
+                memberCount={memberCount}
+                onRunNow={runScan}
+                isRunning={running}
+                runLabel="Run scan"
+                executionMode={executionMode}
+                queueCount={uniqueActions.length}
+                queueSlot={reviewQueueNode}
+                feedSlot={<ActivityFeed />}
+                chatSlot={gmChatNode}
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center p-12">
+                <div className="text-center max-w-sm">
+                  <div className="w-12 h-12 flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#F3F4F6' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2a10 10 0 1 0 10 10H12V2Z" />
+                      <path d="M12 2a10 10 0 0 1 10 10" />
+                    </svg>
+                  </div>
+                  <h2 className="text-lg font-bold text-gray-900 mb-2">No agents yet</h2>
+                  <p className="text-sm text-gray-500 mb-6">Create your first agent to start monitoring your members.</p>
+                  <button
+                    onClick={() => router.push('/setup')}
+                    className="text-sm font-bold text-white px-6 py-3 transition-opacity hover:opacity-80"
+                    style={{ backgroundColor: '#0063FF' }}
+                  >
+                    Create your first agent →
+                  </button>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

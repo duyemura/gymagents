@@ -114,7 +114,7 @@ async function fetchPushPressData(apiKey: string, companyId: string): Promise<{
   checkins: unknown[]
   enrollments: unknown[]
 }> {
-  const PP_BASE = 'https://api.pushpressdev.com/platform/v1'
+  const { PP_PLATFORM_BASE: PP_BASE } = await import('@/lib/pushpress-platform')
   const headers = {
     'API-KEY': apiKey,
     'X-Company-ID': companyId,

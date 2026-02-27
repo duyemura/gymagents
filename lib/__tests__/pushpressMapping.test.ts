@@ -429,7 +429,7 @@ describe('ppApiHeaders', () => {
 
 describe('PP_PLATFORM_BASE', () => {
   it('points to the platform v1 API (not v3)', () => {
-    expect(PP_PLATFORM_BASE).toContain('pushpressdev.com')
+    expect(PP_PLATFORM_BASE).toContain('pushpress.com')
     expect(PP_PLATFORM_BASE).toContain('platform')
     // Must NOT be the old v3 API
     expect(PP_PLATFORM_BASE).not.toContain('/v3')
