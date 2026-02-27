@@ -6,8 +6,8 @@ import { getAccountForUser } from '@/lib/db/accounts'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
 import { createPushPressClient } from '@/lib/pushpress'
-import { recommend, analyzeSnapshot } from '@/lib/setup-recommend'
-import { getAccountMemories, updateMemory, createMemory } from '@/lib/db/memories'
+import { recommend } from '@/lib/setup-recommend'
+import { writeStatsFromSnapshot } from '@/lib/sync-business-stats'
 import type { AccountSnapshot, MemberData, PaymentEvent } from '@/lib/agents/GMAgent'
 
 export async function POST(req: NextRequest) {
@@ -49,9 +49,8 @@ export async function POST(req: NextRequest) {
 
     console.log('[setup/recommend] Recommendation:', recommendation.agentType, '-', recommendation.name)
 
-    // Update business context memory with accurate data from paginated fetch
-    const analysis = analyzeSnapshot(snapshot)
-    await refreshBusinessContextMemory(accountId, accountName, analysis)
+    // Write business stats memory with accurate data from paginated fetch
+    await writeStatsFromSnapshot(accountId, snapshot, avgPrice)
 
     return NextResponse.json({
       recommendation,
@@ -179,67 +178,6 @@ async function buildQuickSnapshot(
     recentLeads: [],
     paymentEvents: [],
     capturedAt: now.toISOString(),
-  }
-}
-
-/**
- * Refresh the business context memory with accurate data from the paginated fetch.
- * The bootstrap LLM call during connect only saw the first page of customers,
- * so the memory often has a stale member count. This updates it with real numbers.
- */
-async function refreshBusinessContextMemory(
-  accountId: string,
-  accountName: string,
-  analysis: import('@/lib/setup-recommend').SnapshotAnalysis,
-) {
-  try {
-    const existing = await getAccountMemories(accountId, { category: 'gym_context' })
-    const businessContextMemory = existing.find(m => m.source === 'agent' && m.importance === 5)
-
-    // Build a richer context string from what we actually discovered
-    const parts: string[] = []
-    parts.push(`${accountName} has ${analysis.totalMembers} members`)
-    if (analysis.activeMembers.length > 0) {
-      parts[0] += ` (${analysis.activeMembers.length} active)`
-    }
-    if (analysis.atRiskMembers.length > 0) {
-      parts.push(`${analysis.atRiskMembers.length} members show declining attendance`)
-    }
-    if (analysis.recentlyCancelled.length > 0) {
-      parts.push(`${analysis.recentlyCancelled.length} recently cancelled`)
-    }
-    if (analysis.newMembers.length > 0) {
-      parts.push(`${analysis.newMembers.length} new members in last 30 days`)
-    }
-    if (analysis.leads.length > 0) {
-      parts.push(`${analysis.leads.length} open leads`)
-    }
-    if (analysis.totalMonthlyRevenue > 0) {
-      const rev = analysis.totalMonthlyRevenue >= 1000
-        ? `$${Math.round(analysis.totalMonthlyRevenue / 1000)}k`
-        : `$${Math.round(analysis.totalMonthlyRevenue)}`
-      parts.push(`estimated monthly revenue: ${rev}`)
-    }
-
-    const updatedContent = parts.join('. ') + '.'
-
-    if (businessContextMemory) {
-      await updateMemory(businessContextMemory.id, { content: updatedContent })
-      console.log('[setup/recommend] Updated business context memory')
-    } else {
-      await createMemory({
-        accountId,
-        category: 'gym_context',
-        content: updatedContent,
-        importance: 5,
-        scope: 'global',
-        source: 'agent',
-      })
-      console.log('[setup/recommend] Created business context memory')
-    }
-  } catch (err: any) {
-    // Non-blocking — recommendation still works even if memory update fails
-    console.error('[setup/recommend] Memory update failed:', err.message)
   }
 }
 
