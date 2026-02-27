@@ -95,7 +95,6 @@ function makeTaskWithGym(overrides: Record<string, any> = {}) {
     gyms: {
       pushpress_api_key: 'pp-key-123',
       pushpress_company_id: 'company-001',
-      avg_membership_price: 175,
     },
     ...overrides,
   }
@@ -204,7 +203,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
 
   it('skips tasks without pushpress_api_key', async () => {
     const task = makeTaskWithGym({
-      gyms: { pushpress_api_key: null, pushpress_company_id: null, avg_membership_price: 150 },
+      gyms: { pushpress_api_key: null, pushpress_company_id: null },
     })
     mockTasks = [task]
 
@@ -248,29 +247,8 @@ describe('GET /api/cron/attribute-outcomes', () => {
     expect(body.expired).toBe(0)
   })
 
-  it('uses gym avg_membership_price for attribution value', async () => {
-    const task = makeTaskWithGym({
-      gyms: { pushpress_api_key: 'key', pushpress_company_id: 'co', avg_membership_price: 225 },
-    })
-    mockTasks = [task]
-
-    mockPpGet.mockResolvedValue([
-      { id: 'checkin-1', customer: 'member-001', timestamp: Date.now() },
-    ])
-
-    const res = await handler(makeRequest('test-cron-secret'))
-    const body = await res.json()
-
-    expect(body.attributed).toBe(1)
-    // Verify the update call used the correct price
-    const engagedUpdate = mockUpdateCalls.find(c => c.update.outcome === 'engaged')
-    expect(engagedUpdate?.update.attributed_value).toBe(225)
-  })
-
-  it('defaults to $150 when gym has no avg_membership_price', async () => {
-    const task = makeTaskWithGym({
-      gyms: { pushpress_api_key: 'key', pushpress_company_id: 'co', avg_membership_price: null },
-    })
+  it('attributes "engaged" without a dollar amount (pricing not available from API)', async () => {
+    const task = makeTaskWithGym()
     mockTasks = [task]
 
     mockPpGet.mockResolvedValue([
@@ -282,6 +260,6 @@ describe('GET /api/cron/attribute-outcomes', () => {
 
     expect(body.attributed).toBe(1)
     const engagedUpdate = mockUpdateCalls.find(c => c.update.outcome === 'engaged')
-    expect(engagedUpdate?.update.attributed_value).toBe(150)
+    expect(engagedUpdate?.update.attributed_value).toBeUndefined()
   })
 })

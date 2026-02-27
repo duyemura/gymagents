@@ -124,6 +124,23 @@ describe('analyzeSnapshot', () => {
     expect(analysis.activeMembers).toHaveLength(0)
   })
 
+  it('splits leads into fresh and stale (30-day threshold)', () => {
+    const snapshot = makeSnapshot({
+      members: [
+        makeMember({ id: 'fresh1', status: 'prospect', memberSince: '2026-02-10' }),
+        makeMember({ id: 'stale1', status: 'prospect', memberSince: '2025-12-01' }),
+        makeMember({ id: 'stale2', status: 'prospect', memberSince: '2025-06-15' }),
+      ],
+    })
+    const analysis = analyzeSnapshot(snapshot, NOW)
+    expect(analysis.leads).toHaveLength(3)
+    expect(analysis.freshLeads).toHaveLength(1)
+    expect(analysis.freshLeads[0].id).toBe('fresh1')
+    expect(analysis.staleLeads).toHaveLength(2)
+    expect(analysis.staleLeads.map(l => l.id)).toContain('stale1')
+    expect(analysis.staleLeads.map(l => l.id)).toContain('stale2')
+  })
+
   it('classifies new members (joined within 30 days)', () => {
     const snapshot = makeSnapshot({
       members: [
@@ -136,7 +153,7 @@ describe('analyzeSnapshot', () => {
     expect(analysis.newMembers[0].id).toBe('m1')
   })
 
-  it('calculates at-risk revenue', () => {
+  it('identifies at-risk members correctly', () => {
     const snapshot = makeSnapshot({
       members: [
         makeMember({ id: 'm1', recentCheckinsCount: 0, previousCheckinsCount: 8, monthlyRevenue: 175 }),
@@ -144,7 +161,9 @@ describe('analyzeSnapshot', () => {
       ],
     })
     const analysis = analyzeSnapshot(snapshot, NOW)
-    expect(analysis.atRiskRevenue).toBe(295)
+    expect(analysis.atRiskMembers).toHaveLength(2)
+    expect(analysis.noShowMembers).toHaveLength(1)
+    expect(analysis.noShowMembers[0].id).toBe('m1')
   })
 })
 
@@ -167,14 +186,16 @@ describe('recommend', () => {
     expect(rec.stats.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('includes revenue at risk in churn headline', () => {
+  it('includes actionable reasoning in churn recommendation', () => {
     const snapshot = makeSnapshot({
       members: [
         makeMember({ id: 'm1', recentCheckinsCount: 0, previousCheckinsCount: 8, monthlyRevenue: 150 }),
       ],
     })
     const rec = recommend(snapshot, NOW)
-    expect(rec.reasoning).toContain('$150/mo')
+    expect(rec.reasoning).toContain('stopped showing up')
+    expect(rec.reasoning).toContain('cancelled yet')
+    expect(rec.reasoning).toContain('gym') // gym-specific language
   })
 
   it('recommends payment_recovery when no churn but payment issues (priority 2)', () => {
@@ -215,16 +236,98 @@ describe('recommend', () => {
     expect(rec.trigger.schedule).toBe('weekly')
   })
 
-  it('recommends lead_followup when prospects exist (priority 5)', () => {
+  it('recommends lead_reactivation when majority of leads are stale (priority 5)', () => {
     const snapshot = makeSnapshot({
       members: [
-        makeMember({ id: 'lead1', status: 'prospect' }),
+        // 3 old leads (created 90+ days ago)
+        makeMember({ id: 'lead1', status: 'prospect', memberSince: '2025-10-01' }),
+        makeMember({ id: 'lead2', status: 'prospect', memberSince: '2025-09-15' }),
+        makeMember({ id: 'lead3', status: 'prospect', memberSince: '2025-11-01' }),
+        // 1 fresh lead
+        makeMember({ id: 'lead4', status: 'prospect', memberSince: '2026-02-20' }),
+        // 1 active member (no risk signals)
+        makeMember({ id: 'm1', status: 'active', recentCheckinsCount: 8, previousCheckinsCount: 10 }),
+      ],
+    })
+    const rec = recommend(snapshot, NOW)
+    expect(rec.agentType).toBe('lead_reactivation')
+    expect(rec.name).toBe('Lead Re-Activation')
+    expect(rec.trigger.mode).toBe('cron')
+    expect(rec.trigger.schedule).toBe('daily')
+    expect(rec.headline).toContain('ghost lead')
+    expect(rec.stats.find(s => s.label === 'Ghost Leads')?.value).toBe(3)
+  })
+
+  it('recommends lead_reactivation when 3+ stale leads even with fresh leads too', () => {
+    const snapshot = makeSnapshot({
+      members: [
+        makeMember({ id: 'lead1', status: 'prospect', memberSince: '2025-08-01' }),
+        makeMember({ id: 'lead2', status: 'prospect', memberSince: '2025-09-01' }),
+        makeMember({ id: 'lead3', status: 'prospect', memberSince: '2025-10-01' }),
+        makeMember({ id: 'lead4', status: 'prospect', memberSince: '2026-02-20' }),
+        makeMember({ id: 'lead5', status: 'prospect', memberSince: '2026-02-22' }),
+        makeMember({ id: 'lead6', status: 'prospect', memberSince: '2026-02-24' }),
+        makeMember({ id: 'm1', status: 'active', recentCheckinsCount: 8, previousCheckinsCount: 10 }),
+      ],
+    })
+    const rec = recommend(snapshot, NOW)
+    expect(rec.agentType).toBe('lead_reactivation')
+    expect(rec.reasoning).toContain('never converted')
+  })
+
+  it('recommends lead_followup when leads are mostly fresh (priority 6)', () => {
+    const snapshot = makeSnapshot({
+      members: [
+        // 2 fresh leads, 1 stale — majority fresh, under threshold of 3
+        makeMember({ id: 'lead1', status: 'prospect', memberSince: '2026-02-20' }),
+        makeMember({ id: 'lead2', status: 'prospect', memberSince: '2026-02-22' }),
+        makeMember({ id: 'lead3', status: 'prospect', memberSince: '2025-12-01' }),
         makeMember({ id: 'm1', status: 'active', recentCheckinsCount: 8, previousCheckinsCount: 10 }),
       ],
     })
     const rec = recommend(snapshot, NOW)
     expect(rec.agentType).toBe('lead_followup')
     expect(rec.trigger.event).toBe('lead.created')
+  })
+
+  it('recommends lead_reactivation for a single old lead', () => {
+    const snapshot = makeSnapshot({
+      members: [
+        makeMember({ id: 'lead1', status: 'prospect', memberSince: '2025-06-01' }),
+        makeMember({ id: 'm1', status: 'active', recentCheckinsCount: 8, previousCheckinsCount: 10 }),
+      ],
+    })
+    const rec = recommend(snapshot, NOW)
+    expect(rec.agentType).toBe('lead_reactivation')
+    expect(rec.headline).toContain('1 ghost lead')
+  })
+
+  it('recommends lead_followup for a single fresh lead', () => {
+    const snapshot = makeSnapshot({
+      members: [
+        makeMember({ id: 'lead1', status: 'prospect', memberSince: '2026-02-20' }),
+        makeMember({ id: 'm1', status: 'active', recentCheckinsCount: 8, previousCheckinsCount: 10 }),
+      ],
+    })
+    const rec = recommend(snapshot, NOW)
+    expect(rec.agentType).toBe('lead_followup')
+  })
+
+  it('lead_reactivation includes age context in reasoning', () => {
+    const snapshot = makeSnapshot({
+      members: [
+        // Leads from 6+ months ago
+        makeMember({ id: 'lead1', status: 'prospect', memberSince: '2025-05-01' }),
+        makeMember({ id: 'lead2', status: 'prospect', memberSince: '2025-04-15' }),
+        makeMember({ id: 'lead3', status: 'prospect', memberSince: '2025-06-01' }),
+        makeMember({ id: 'm1', status: 'active', recentCheckinsCount: 8, previousCheckinsCount: 10 }),
+      ],
+    })
+    const rec = recommend(snapshot, NOW)
+    expect(rec.agentType).toBe('lead_reactivation')
+    // Should mention age of the leads
+    expect(rec.reasoning).toMatch(/months? old/)
+    expect(rec.reasoning).toContain('10-15%')
   })
 
   it('falls back to generic retention monitor when nothing stands out', () => {
@@ -237,6 +340,7 @@ describe('recommend', () => {
     expect(rec.agentType).toBe('at_risk_detector')
     expect(rec.name).toBe('Retention Monitor')
     expect(rec.headline).toContain('active member')
+    expect(rec.reasoning).toContain('Gym members') // gym-specific
   })
 
   it('returns fallback for empty snapshot', () => {
@@ -276,7 +380,7 @@ describe('recommend', () => {
 
   // ── Currency formatting ──────────────────────────────────────────────────
 
-  it('formats large revenue with k suffix', () => {
+  it('handles many at-risk members with plural reasoning', () => {
     const snapshot = makeSnapshot({
       members: Array.from({ length: 20 }, (_, i) =>
         makeMember({
@@ -288,8 +392,9 @@ describe('recommend', () => {
       ),
     })
     const rec = recommend(snapshot, NOW)
-    // 20 * $150 = $3,000 → "$3k"
-    expect(rec.reasoning).toContain('$3k')
+    expect(rec.reasoning).toContain('20 members have stopped showing up')
+    expect(rec.reasoning).toContain('gym') // gym-specific language
+    expect(rec.stats.find(s => s.label === 'At Risk')?.value).toBe(20)
   })
 
   // ── Mixed scenarios ──────────────────────────────────────────────────────

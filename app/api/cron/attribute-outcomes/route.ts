@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
   const { data: tasks, error: tasksError } = await supabaseAdmin
     .from('agent_tasks')
-    .select('*, gyms(pushpress_api_key, pushpress_company_id, avg_membership_price)')
+    .select('*, gyms(pushpress_api_key, pushpress_company_id)')
     .in('status', ['resolved', 'awaiting_reply'])
     .is('outcome', null)
     .not('member_email', 'is', null)
@@ -69,14 +69,12 @@ export async function GET(req: NextRequest) {
       const hasCheckin = checkins.some(c => c.customer === task.member_id)
 
       if (hasCheckin) {
-        const membershipValue = gym.avg_membership_price ?? 150
         await supabaseAdmin
           .from('agent_tasks')
           .update({
             outcome: 'engaged',
             outcome_reason: 'checkin_after_outreach',
             outcome_score: 80,
-            attributed_value: membershipValue,
             attributed_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })

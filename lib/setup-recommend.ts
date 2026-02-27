@@ -10,8 +10,9 @@
  *   2. payment_recovery — payment failures detected
  *   3. win_back       — recently cancelled members worth recovering
  *   4. new_member_onboarding — new members in first 30 days
- *   5. lead_followup  — leads that haven't converted
- *   6. fallback       — generic retention monitor
+ *   5. lead_reactivation — old ghost leads (30+ days) worth re-engaging
+ *   6. lead_followup  — fresh leads that haven't converted
+ *   7. fallback       — generic retention monitor
  */
 
 import type { AccountSnapshot, MemberData, PaymentEvent } from './agents/GMAgent'
@@ -51,9 +52,9 @@ export interface SnapshotAnalysis {
   recentlyCancelled: MemberData[]     // cancelled in last 30 days
   newMembers: MemberData[]            // joined last 30 days
   leads: MemberData[]                 // status === 'prospect'
+  freshLeads: MemberData[]            // prospect, created within 30 days
+  staleLeads: MemberData[]            // prospect, older than 30 days (ghost leads)
   paymentIssues: PaymentEvent[]
-  totalMonthlyRevenue: number
-  atRiskRevenue: number
 }
 
 export function analyzeSnapshot(snapshot: AccountSnapshot, now = new Date()): SnapshotAnalysis {
@@ -64,12 +65,20 @@ export function analyzeSnapshot(snapshot: AccountSnapshot, now = new Date()): Sn
   const recentlyCancelled: MemberData[] = []
   const newMembers: MemberData[] = []
   const leads: MemberData[] = []
+  const freshLeads: MemberData[] = []
+  const staleLeads: MemberData[] = []
   const atRiskMembers: MemberData[] = []
   const noShowMembers: MemberData[] = []
 
   for (const m of snapshot.members) {
     if (m.status === 'prospect') {
       leads.push(m)
+      // Classify by age: stale = 30+ days old, fresh = under 30 days
+      if (m.memberSince && m.memberSince < thirtyDaysAgo.split('T')[0]) {
+        staleLeads.push(m)
+      } else {
+        freshLeads.push(m)
+      }
       continue
     }
 
@@ -105,9 +114,6 @@ export function analyzeSnapshot(snapshot: AccountSnapshot, now = new Date()): Sn
     }
   }
 
-  const totalMonthlyRevenue = activeMembers.reduce((sum, m) => sum + (m.monthlyRevenue || 0), 0)
-  const atRiskRevenue = atRiskMembers.reduce((sum, m) => sum + (m.monthlyRevenue || 0), 0)
-
   return {
     totalMembers: snapshot.members.length,
     activeMembers,
@@ -117,9 +123,9 @@ export function analyzeSnapshot(snapshot: AccountSnapshot, now = new Date()): Sn
     recentlyCancelled,
     newMembers,
     leads,
+    freshLeads,
+    staleLeads,
     paymentIssues: snapshot.paymentEvents ?? [],
-    totalMonthlyRevenue,
-    atRiskRevenue,
   }
 }
 
@@ -148,12 +154,17 @@ export function recommend(snapshot: AccountSnapshot, now = new Date()): SetupRec
     return buildOnboardingRec(analysis)
   }
 
-  // 5. Lead follow-up
+  // 5. Lead reactivation — old ghost leads that went cold
+  if (analysis.staleLeads.length >= 3 || (analysis.leads.length > 0 && analysis.staleLeads.length > analysis.freshLeads.length)) {
+    return buildLeadReactivationRec(analysis)
+  }
+
+  // 6. Lead follow-up — fresh leads
   if (analysis.leads.length > 0) {
     return buildLeadFollowupRec(analysis)
   }
 
-  // 6. Fallback — generic retention monitor
+  // 7. Fallback — generic retention monitor
   return buildFallbackRec(analysis)
 }
 
@@ -162,7 +173,6 @@ export function recommend(snapshot: AccountSnapshot, now = new Date()): SetupRec
 function buildChurnRiskRec(a: SnapshotAnalysis): SetupRecommendation {
   const noShowCount = a.noShowMembers.length
   const droppingCount = a.atRiskMembers.length - noShowCount
-  const revenueAtRisk = formatCurrency(a.atRiskRevenue)
 
   let headline: string
   if (noShowCount > 0 && droppingCount > 0) {
@@ -173,15 +183,20 @@ function buildChurnRiskRec(a: SnapshotAnalysis): SetupRecommendation {
     headline = `${droppingCount} member${droppingCount !== 1 ? 's' : ''} with declining attendance`
   }
 
+  const memberWord = a.atRiskMembers.length === 1 ? 'member' : 'members'
+  const reasoning = noShowCount > 0
+    ? `${noShowCount} ${noShowCount === 1 ? 'member has' : 'members have'} stopped showing up at the gym — and they haven't cancelled yet, which means you still have time to get them back. A personal check-in from the coach catches this before it becomes a cancellation.`
+    : `${a.atRiskMembers.length} ${memberWord} are slipping. Gym attendance is down, and every week that passes makes it less likely they come back. Catch them with a personal message before they mentally check out.`
+
   return {
     agentType: 'at_risk_detector',
     name: 'At-Risk Monitor',
-    description: 'Detect members whose attendance is dropping and draft personal check-in messages before they cancel.',
+    description: 'Detect gym members whose attendance is dropping and draft personal check-in messages before they cancel.',
     headline,
-    reasoning: `${revenueAtRisk}/mo in revenue is at risk from ${a.atRiskMembers.length} member${a.atRiskMembers.length !== 1 ? 's' : ''} whose attendance has dropped. A personal check-in message recovers ~40% of at-risk members before they cancel.`,
+    reasoning,
     stats: [
       { label: 'At Risk', value: a.atRiskMembers.length, emphasis: true },
-      { label: 'Revenue at Risk', value: `${revenueAtRisk}/mo`, emphasis: true },
+      { label: 'Gone Dark', value: noShowCount, emphasis: noShowCount > 0 },
       { label: 'Active Members', value: a.activeMembers.length },
     ],
     trigger: { mode: 'cron', schedule: 'daily' },
@@ -189,17 +204,14 @@ function buildChurnRiskRec(a: SnapshotAnalysis): SetupRecommendation {
 }
 
 function buildPaymentRecoveryRec(a: SnapshotAnalysis): SetupRecommendation {
-  const failedRevenue = a.paymentIssues.reduce((sum, p) => sum + (p.amount || 0), 0)
-
   return {
     agentType: 'payment_recovery',
     name: 'Payment Recovery',
-    description: 'Detect failed payments and send friendly recovery messages before involuntary churn happens.',
-    headline: `${a.paymentIssues.length} failed payment${a.paymentIssues.length !== 1 ? 's' : ''} need attention`,
-    reasoning: `${formatCurrency(failedRevenue)}/mo at risk from failed payments. Most failed payments are recoverable with a timely, friendly nudge — the member wants to stay but their card expired or hit a limit.`,
+    description: 'Detect failed membership payments and send friendly recovery messages before involuntary churn happens.',
+    headline: `${a.paymentIssues.length} failed membership payment${a.paymentIssues.length !== 1 ? 's' : ''} need attention`,
+    reasoning: `${a.paymentIssues.length === 1 ? 'A membership payment' : `${a.paymentIssues.length} membership payments`} just failed — these are billing glitches, not actual churn. Most of these gym members want to stay. Catch it fast with a friendly heads-up and they'll fix it.`,
     stats: [
       { label: 'Failed Payments', value: a.paymentIssues.length, emphasis: true },
-      { label: 'Revenue at Risk', value: `${formatCurrency(failedRevenue)}/mo`, emphasis: true },
       { label: 'Active Members', value: a.activeMembers.length },
     ],
     trigger: { mode: 'event', event: 'payment.failed' },
@@ -207,18 +219,16 @@ function buildPaymentRecoveryRec(a: SnapshotAnalysis): SetupRecommendation {
 }
 
 function buildWinBackRec(a: SnapshotAnalysis): SetupRecommendation {
-  const lostRevenue = a.recentlyCancelled.reduce((sum, m) => sum + (m.monthlyRevenue || 0), 0)
-
   return {
     agentType: 'win_back',
     name: 'Win-Back Agent',
     description: 'Reach out to recently cancelled members with a personal message to bring them back.',
     headline: `${a.recentlyCancelled.length} recently cancelled member${a.recentlyCancelled.length !== 1 ? 's' : ''} may be recoverable`,
-    reasoning: `${formatCurrency(lostRevenue)}/mo lost from recent cancellations. Within the first 30 days, a personal note from the gym recovers 15-25% of cancellations — they often just need a reason to come back.`,
+    reasoning: `${a.recentlyCancelled.length === 1 ? 'Someone' : `${a.recentlyCancelled.length} people`} just cancelled — but you have a 30-day window to bring ${a.recentlyCancelled.length === 1 ? 'them' : 'some of them'} back. A personal note from the owner works. A generic win-back email doesn't.`,
     stats: [
       { label: 'Recent Cancellations', value: a.recentlyCancelled.length, emphasis: true },
-      { label: 'Lost Revenue', value: `${formatCurrency(lostRevenue)}/mo`, emphasis: true },
       { label: 'Total Cancelled', value: a.cancelledMembers.length },
+      { label: 'Active Members', value: a.activeMembers.length },
     ],
     trigger: { mode: 'event', event: 'member.cancelled' },
   }
@@ -228,14 +238,49 @@ function buildOnboardingRec(a: SnapshotAnalysis): SetupRecommendation {
   return {
     agentType: 'new_member_onboarding',
     name: 'Onboarding Coach',
-    description: 'Check in on new members during their first 30 days to make sure they\'re settling in and building a routine.',
+    description: 'Check in on new gym members during their first 30 days to make sure they\'re settling in and building a workout routine.',
     headline: `${a.newMembers.length} new member${a.newMembers.length !== 1 ? 's' : ''} in their first 30 days`,
-    reasoning: `New members who don't build a habit in the first month are 3x more likely to cancel. Proactive check-ins during onboarding dramatically improve 90-day retention.`,
+    reasoning: `You have ${a.newMembers.length} new ${a.newMembers.length === 1 ? 'member' : 'members'} right now who are still deciding if the gym is for them. Members who don't build a workout routine in the first 30 days cancel 3x more often — a quick check-in at the right moment makes all the difference.`,
     stats: [
       { label: 'New Members', value: a.newMembers.length, emphasis: true },
       { label: 'Active Members', value: a.activeMembers.length },
     ],
     trigger: { mode: 'cron', schedule: 'weekly' },
+  }
+}
+
+function buildLeadReactivationRec(a: SnapshotAnalysis): SetupRecommendation {
+  const staleCount = a.staleLeads.length
+
+  const ages = a.staleLeads
+    .map(l => {
+      if (!l.memberSince) return 0
+      const d = new Date(l.memberSince)
+      return isNaN(d.getTime()) ? 0 : Math.floor((Date.now() - d.getTime()) / MS_PER_DAY)
+    })
+    .filter(age => age > 0)
+  const maxAge = ages.length > 0 ? Math.max(...ages) : 0
+  const avgAge = ages.length > 0 ? Math.round(ages.reduce((s, age) => s + age, 0) / ages.length) : 0
+
+  const ageNote = maxAge > 180
+    ? `some over ${Math.floor(maxAge / 30)} months old`
+    : avgAge > 60
+    ? `averaging ${Math.round(avgAge / 30)} months old`
+    : 'most over a month old'
+
+  return {
+    agentType: 'lead_reactivation',
+    name: 'Lead Re-Activation',
+    description: 'Re-engage old leads who went cold — a personal message from the owner can bring ghost leads back into the funnel.',
+    headline: `${staleCount} ghost lead${staleCount !== 1 ? 's' : ''} sitting in your system`,
+    reasoning: `You have ${staleCount} lead${staleCount !== 1 ? 's' : ''} that never converted — ${ageNote}. These aren't dead. They raised their hand once, and life got in the way. A personal, non-salesy check-in from the owner brings 10-15% of ghost leads back into the funnel.`,
+    stats: [
+      { label: 'Ghost Leads', value: staleCount, emphasis: true },
+      { label: 'Avg Age', value: `${avgAge}d`, emphasis: avgAge > 90 },
+      ...(a.freshLeads.length > 0 ? [{ label: 'Fresh Leads', value: a.freshLeads.length }] : []),
+      { label: 'Active Members', value: a.activeMembers.length },
+    ],
+    trigger: { mode: 'cron' as const, schedule: 'daily' },
   }
 }
 
@@ -245,7 +290,7 @@ function buildLeadFollowupRec(a: SnapshotAnalysis): SetupRecommendation {
     name: 'Lead Follow-Up',
     description: 'Follow up with leads who haven\'t converted yet — a timely personal message makes all the difference.',
     headline: `${a.leads.length} lead${a.leads.length !== 1 ? 's' : ''} waiting for follow-up`,
-    reasoning: `Leads who get a personal follow-up within 24 hours convert at 2x the rate. These ${a.leads.length} leads are in your system but haven't signed up yet.`,
+    reasoning: `You have ${a.leads.length} ${a.leads.length === 1 ? 'lead' : 'leads'} sitting in your system who haven't converted yet. ABC — always be closing. Leads who get a personal follow-up same day convert at 2x the rate. Every day you wait, they're cooling off.`,
     stats: [
       { label: 'Open Leads', value: a.leads.length, emphasis: true },
       { label: 'Active Members', value: a.activeMembers.length },
@@ -258,22 +303,13 @@ function buildFallbackRec(a: SnapshotAnalysis): SetupRecommendation {
   return {
     agentType: 'at_risk_detector',
     name: 'Retention Monitor',
-    description: 'Continuously monitor member attendance and flag anyone who starts slipping before they cancel.',
+    description: 'Continuously monitor gym member attendance and flag anyone who starts skipping workouts before they cancel.',
     headline: `${a.activeMembers.length} active member${a.activeMembers.length !== 1 ? 's' : ''} to watch over`,
-    reasoning: `Even when everything looks healthy, members slip quietly. A daily scan catches attendance drops early — before the member has mentally checked out.`,
+    reasoning: `Gym members quit quietly — there's no notice, just an empty spot on the floor. A daily scan catches attendance drops before the member has mentally checked out.`,
     stats: [
       { label: 'Active Members', value: a.activeMembers.length, emphasis: true },
-      { label: 'Monthly Revenue', value: `${formatCurrency(a.totalMonthlyRevenue)}/mo` },
+      { label: 'Total Members', value: a.totalMembers },
     ],
     trigger: { mode: 'cron', schedule: 'daily' },
   }
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatCurrency(amount: number): string {
-  if (amount >= 1000) {
-    return `$${(amount / 1000).toFixed(1).replace(/\.0$/, '')}k`
-  }
-  return `$${Math.round(amount)}`
 }

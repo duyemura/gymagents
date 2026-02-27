@@ -17,6 +17,8 @@ import {
   updateMemory,
   createMemory,
 } from './db/memories'
+import { supabaseAdmin } from './supabase'
+import { isValidTimezone } from './timezone'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,9 +47,6 @@ export interface BusinessStats {
   newLast30Days: number
   cancelledLast30Days: number
 
-  // Revenue
-  estimatedMRR: number
-
   syncedAt: string
 }
 
@@ -65,7 +64,6 @@ export async function syncBusinessStats(
   accountId: string,
   apiKey: string,
   companyId: string,
-  avgMembershipPrice: number,
 ): Promise<SyncResult> {
   const client = createPushPressClient(apiKey, companyId)
   const now = new Date()
@@ -124,8 +122,20 @@ export async function syncBusinessStats(
     leads,
     newLast30Days,
     cancelledLast30Days,
-    estimatedMRR: active * avgMembershipPrice,
     syncedAt: now.toISOString(),
+  }
+
+  // If PushPress returned a valid timezone, persist it to the accounts table
+  if (businessInfo.timezone && isValidTimezone(businessInfo.timezone)) {
+    try {
+      await supabaseAdmin
+        .from('accounts')
+        .update({ timezone: businessInfo.timezone })
+        .eq('id', accountId)
+      console.log(`[sync] Saved timezone ${businessInfo.timezone} for account ${accountId}`)
+    } catch (err: any) {
+      console.warn(`[sync] Failed to save timezone for account ${accountId}:`, err?.message)
+    }
   }
 
   const memoryId = await writeStatsMemory(accountId, stats)
@@ -177,10 +187,8 @@ export async function writeStatsFromSnapshot(
     members: Array<{
       status: string
       memberSince: string
-      monthlyRevenue: number
     }>
   },
-  avgMembershipPrice: number,
 ): Promise<string> {
   const now = new Date()
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -212,7 +220,6 @@ export async function writeStatsFromSnapshot(
     leads,
     newLast30Days,
     cancelledLast30Days,
-    estimatedMRR: active * avgMembershipPrice,
     syncedAt: now.toISOString(),
   }
 
@@ -247,14 +254,6 @@ export function formatStatsForMemory(stats: BusinessStats): string {
     if (stats.newLast30Days > 0) changes.push(`+${stats.newLast30Days} new`)
     if (stats.cancelledLast30Days > 0) changes.push(`-${stats.cancelledLast30Days} cancelled`)
     lines.push(`Last 30 days: ${changes.join(', ')}`)
-  }
-
-  // Revenue
-  if (stats.estimatedMRR > 0) {
-    const mrr = stats.estimatedMRR >= 1000
-      ? `$${Math.round(stats.estimatedMRR / 1000)}k`
-      : `$${Math.round(stats.estimatedMRR)}`
-    lines.push(`Estimated MRR: ${mrr}/mo`)
   }
 
   // Sync time

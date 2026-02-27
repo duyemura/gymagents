@@ -20,29 +20,28 @@ export async function POST(req: NextRequest) {
   try {
     const account = await getAccountForUser(session.id)
     if (!account) {
-      return NextResponse.json({ error: 'No account connected — connect your gym first' }, { status: 400 })
+      return NextResponse.json({ error: 'No gym connected — connect your PushPress account first' }, { status: 400 })
     }
 
     const accountId = (account as any).id
     const { data: accountRow, error: fetchErr } = await supabaseAdmin
       .from('accounts')
-      .select('pushpress_api_key, pushpress_company_id, account_name, member_count, avg_membership_price')
+      .select('pushpress_api_key, pushpress_company_id, account_name, gym_name, member_count')
       .eq('id', accountId)
       .single()
 
     if (fetchErr || !accountRow?.pushpress_api_key) {
-      return NextResponse.json({ error: 'No PushPress connection found — reconnect your gym' }, { status: 400 })
+      return NextResponse.json({ error: 'No PushPress connection found — reconnect your gym\'s PushPress account' }, { status: 400 })
     }
 
     const apiKey = decrypt(accountRow.pushpress_api_key)
     const companyId = accountRow.pushpress_company_id || ''
-    const accountName = accountRow.account_name || 'Your Gym'
-    const avgPrice = accountRow.avg_membership_price || 150
+    const accountName = accountRow.account_name || accountRow.gym_name || 'Your Gym'
 
     console.log('[setup/recommend] Fetching data for', accountName)
 
     // Build a quick snapshot using the v3 API (which actually works in production)
-    const snapshot = await buildQuickSnapshot(apiKey, companyId, accountId, accountName, avgPrice)
+    const snapshot = await buildQuickSnapshot(apiKey, companyId, accountId, accountName)
 
     console.log('[setup/recommend] Snapshot:', snapshot.members.length, 'members')
 
@@ -52,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     // Write business stats + schedule memories with accurate data from paginated fetch
     await Promise.all([
-      writeStatsFromSnapshot(accountId, snapshot, avgPrice),
+      writeStatsFromSnapshot(accountId, snapshot),
       writeScheduleFromSnapshot(accountId, snapshot),
     ])
 
@@ -82,7 +81,6 @@ async function buildQuickSnapshot(
   companyId: string,
   accountId: string,
   accountName: string,
-  avgPrice: number,
 ): Promise<AccountSnapshot> {
   const client = createPushPressClient(apiKey, companyId)
   const now = new Date()
@@ -170,7 +168,7 @@ async function buildQuickSnapshot(
       memberSince,
       recentCheckinsCount,
       previousCheckinsCount,
-      monthlyRevenue: avgPrice,
+      monthlyRevenue: 0,
     })
   }
 

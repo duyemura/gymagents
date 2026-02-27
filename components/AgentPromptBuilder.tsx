@@ -186,7 +186,7 @@ export default function AgentPromptBuilder({
           onChange={e => { onSystemPromptChange(e.target.value); setSelectedIdx(null) }}
           rows={variations.length > 0 ? 7 : 5}
           className={fieldCls + ' resize-y font-mono text-xs leading-relaxed'}
-          placeholder={`Describe what this agent should do, or click "Generate with AI" to write a prompt from your name and description above.`}
+          placeholder={`Describe what this agent should do for your gym, or click "Generate with AI" to write a prompt from the name and description above.`}
           disabled={disabled}
         />
       </div>

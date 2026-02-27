@@ -157,7 +157,6 @@ export async function POST(req: NextRequest) {
             accountName,
             apiKey,
             (account.pushpress_company_id as string) ?? undefined,
-            (account.avg_membership_price as number) ?? undefined,
           )
         } catch (err: any) {
           emit({ type: 'error', message: `Failed to fetch PushPress data: ${err.message}` })

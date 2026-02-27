@@ -94,6 +94,15 @@ vi.mock('../models', () => ({
   SONNET: 'claude-sonnet-4-6',
 }))
 
+// ── Mock timezone (used for local hour scheduling) ──────────────────────────
+vi.mock('../timezone', () => ({
+  getAccountTimezone: vi.fn().mockResolvedValue('America/New_York'),
+  getLocalHour: vi.fn().mockReturnValue(9), // match agent run_hour of 9
+  getLocalDayOfWeek: vi.fn().mockReturnValue(1), // Monday
+  isQuietHours: vi.fn().mockReturnValue(false),
+  DEFAULT_TIMEZONE: 'America/New_York',
+}))
+
 // ── Supabase mock ───────────────────────────────────────────────────────────
 
 let mockAccounts: any[] = []
@@ -199,7 +208,6 @@ describe('POST /api/cron/run-analysis', () => {
       id: 'acct-001', gym_name: 'Test Gym',
       pushpress_api_key: 'encrypted-key',
       pushpress_company_id: 'company-001',
-      avg_membership_price: 150,
     }]
 
     // Automations join agents — the cron route queries agent_automations
@@ -258,8 +266,8 @@ describe('POST /api/cron/run-analysis', () => {
 
   it('skips accounts with no due automations', async () => {
     mockAccounts = [
-      { id: 'acct-001', gym_name: 'Active Gym', pushpress_api_key: 'k1', pushpress_company_id: 'c1', avg_membership_price: 150 },
-      { id: 'acct-002', gym_name: 'Empty Gym', pushpress_api_key: 'k2', pushpress_company_id: 'c2', avg_membership_price: 100 },
+      { id: 'acct-001', gym_name: 'Active Gym', pushpress_api_key: 'k1', pushpress_company_id: 'c1' },
+      { id: 'acct-002', gym_name: 'Empty Gym', pushpress_api_key: 'k2', pushpress_company_id: 'c2' },
     ]
 
     let autoCallCount = 0
@@ -316,7 +324,7 @@ describe('POST /api/cron/run-analysis', () => {
   it('passes snapshot through to runAgentAnalysis', async () => {
     await POST(makeRequest('test-cron-secret'))
 
-    expect(mockBuildAccountSnapshot).toHaveBeenCalledWith('acct-001', 'Test Gym', 'decrypted-api-key', 'company-001', 150)
+    expect(mockBuildAccountSnapshot).toHaveBeenCalledWith('acct-001', 'Test Gym', 'decrypted-api-key', 'company-001')
     expect(mockRunAgentAnalysis).toHaveBeenCalledWith(
       expect.objectContaining({ skillType: 'at_risk_detector', accountId: 'acct-001' }),
       DEFAULT_SNAPSHOT,

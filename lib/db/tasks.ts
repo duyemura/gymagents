@@ -11,6 +11,7 @@ import type {
 } from '../types/agents'
 import { publishEvent } from './events'
 import type { AccountInsight } from '../agents/GMAgent'
+import { getAccountTimezone, getLocalTodayStartISO } from '../timezone'
 
 /** Max autopilot messages per gym per day */
 export const DAILY_AUTOPILOT_LIMIT = 10
@@ -327,11 +328,12 @@ export async function createInsightTask(params: {
 // ============================================================
 // getAutopilotSendCountToday
 // Counts auto-sent tasks (requires_approval=false, non-ad_hoc) for a gym today.
+// Uses the account's timezone to define "today" (local midnight, not UTC midnight).
 // Used to enforce the daily autopilot send limit.
 // ============================================================
 export async function getAutopilotSendCountToday(accountId: string): Promise<number> {
-  const todayStart = new Date()
-  todayStart.setHours(0, 0, 0, 0)
+  const timezone = await getAccountTimezone(accountId)
+  const todayStartISO = getLocalTodayStartISO(timezone)
 
   const { count, error } = await supabaseAdmin
     .from('agent_tasks')
@@ -339,7 +341,7 @@ export async function getAutopilotSendCountToday(accountId: string): Promise<num
     .eq('account_id', accountId)
     .eq('requires_approval', false)
     .neq('task_type', 'ad_hoc')
-    .gte('created_at', todayStart.toISOString())
+    .gte('created_at', todayStartISO)
 
   if (error) {
     console.warn('getAutopilotSendCountToday failed:', error.message)

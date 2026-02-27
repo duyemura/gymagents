@@ -30,6 +30,7 @@ import type { ResearchSummaryData } from '@/lib/artifacts/types'
 import Anthropic from '@anthropic-ai/sdk'
 import { HAIKU } from '@/lib/models'
 import { buildAccountSnapshot } from '@/lib/pushpress-platform'
+import { getAccountTimezone, getLocalHour, getLocalDayOfWeek } from '@/lib/timezone'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Claude evaluate helper — shared across all agent runs
@@ -64,10 +65,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   console.log('[run-agents] Starting agent cron')
 
-  // Fetch all connected accounts
+  // Fetch all connected accounts (include timezone for local-hour scheduling)
   const { data: accounts, error: accountsError } = await supabaseAdmin
     .from('accounts')
-    .select('id, gym_name, pushpress_api_key, pushpress_company_id, avg_membership_price')
+    .select('id, gym_name, pushpress_api_key, pushpress_company_id, timezone')
     .not('pushpress_api_key', 'is', null)
 
   if (accountsError) {
@@ -99,7 +100,6 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           account.gym_name ?? 'Business',
           apiKey,
           account.pushpress_company_id ?? undefined,
-          account.avg_membership_price ?? undefined,
         )
       } catch (err) {
         console.error(`[run-agents] Connector fetch failed for account ${account.id}:`, err)
@@ -107,7 +107,12 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       }
 
       // Fetch cron automations due now, joined with agent capability
-      const currentUTCHour = new Date().getUTCHours()
+      // Use account's local hour (not UTC) so agents run at the owner's expected time
+      const accountTimezone = account.timezone || 'America/New_York'
+      const now = new Date()
+      const currentLocalHour = getLocalHour(accountTimezone, now)
+      const currentLocalDay = getLocalDayOfWeek(accountTimezone, now)
+
       const { data: automationsRaw } = await supabaseAdmin
         .from('agent_automations')
         .select('id, cron_schedule, run_hour, agent_id, agents!inner(id, skill_type, system_prompt, name)')
@@ -116,13 +121,13 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         .eq('is_active', true)
 
       // Hourly automations always run; daily/weekly only at their scheduled hour
+      // run_hour is now interpreted as the account's local hour (not UTC)
       const dueAutomations = (automationsRaw ?? []).filter((a: any) => {
         if (a.cron_schedule === 'hourly') return true
         const agentHour = a.run_hour ?? 9
-        if (a.cron_schedule === 'daily') return currentUTCHour === agentHour
+        if (a.cron_schedule === 'daily') return currentLocalHour === agentHour
         if (a.cron_schedule === 'weekly') {
-          const now = new Date()
-          return now.getUTCDay() === 1 && currentUTCHour === agentHour
+          return currentLocalDay === 1 && currentLocalHour === agentHour // Monday
         }
         return true
       })
@@ -134,7 +139,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       }))
 
       if (agents.length === 0) {
-        console.log(`[run-agents] No agents due for account ${account.id} at UTC hour ${currentUTCHour}, skipping`)
+        console.log(`[run-agents] No agents due for account ${account.id} at local hour ${currentLocalHour} (${accountTimezone}), skipping`)
         continue
       }
 

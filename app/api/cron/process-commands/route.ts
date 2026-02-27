@@ -25,6 +25,7 @@ import { updateTaskStatus, appendConversation, getAutopilotSendCountToday, DAILY
 import { sendGmailMessage, isGmailConnected } from '@/lib/gmail'
 import { evaluateFollowUp } from '@/lib/follow-up-evaluator'
 import { Resend } from 'resend'
+import { getAccountTimezone, isQuietHours } from '@/lib/timezone'
 
 async function handler(req: NextRequest): Promise<NextResponse> {
   const resend = new Resend(process.env.RESEND_API_KEY!)
@@ -77,6 +78,13 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     for (const task of autopilotTasks ?? []) {
       const gym = (task as any).gyms
       if (!gym?.autopilot_enabled) continue
+
+      // Respect quiet hours — don't send messages outside 8am-9pm local time
+      const gymTimezone = await getAccountTimezone(task.gym_id)
+      if (isQuietHours(gymTimezone)) {
+        console.log(`[process-commands] Skipping autopilot for task ${task.id} — quiet hours in ${gymTimezone}`)
+        continue
+      }
 
       const ctx = (task.context ?? {}) as Record<string, unknown>
       const draftMessage = ctx.draftMessage as string
@@ -194,6 +202,13 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     for (const task of followUpTasks ?? []) {
       const memberEmail = task.member_email
       if (!memberEmail) continue
+
+      // Respect quiet hours — defer follow-ups outside 8am-9pm local time
+      const followUpTimezone = await getAccountTimezone(task.gym_id)
+      if (isQuietHours(followUpTimezone)) {
+        console.log(`[process-commands] Deferring follow-up for task ${task.id} — quiet hours in ${followUpTimezone}`)
+        continue
+      }
 
       // Check opt-out (infrastructure — never AI-driven)
       const { data: optout } = await supabaseAdmin

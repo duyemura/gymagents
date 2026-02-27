@@ -4,12 +4,13 @@ export const dynamic = 'force-dynamic'
  * POST /api/cron/daily-digest
  *
  * Sends daily email digest to gym owners with activity summary.
- * Called once daily by Vercel Cron (e.g., 8am local time).
+ * Called every hour by Vercel Cron — only sends when it's 8am in the gym's local timezone.
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { Resend } from 'resend'
 import { getMonthlyRetentionROI } from '@/lib/db/kpi'
+import { getLocalHour, DEFAULT_TIMEZONE } from '@/lib/timezone'
 
 
 async function handler(req: NextRequest): Promise<NextResponse> {
@@ -19,19 +20,29 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Get all accounts with connected owners via team_members
+  // Get all accounts with connected owners via team_members (include timezone)
   const { data: members } = await supabaseAdmin
     .from('team_members')
-    .select('user_id, accounts!inner(id, account_name, pushpress_api_key), users(email)')
+    .select('user_id, accounts!inner(id, account_name, pushpress_api_key, timezone), users(email)')
     .eq('role', 'owner')
     .not('accounts.pushpress_api_key', 'is', null)
 
   let sent = 0
+  let skippedTimezone = 0
 
   for (const member of members ?? []) {
     const account = (member as any).accounts
     const ownerEmail = (member as any).users?.email
     if (!ownerEmail || !account) continue
+
+    // Only send digest when it's ~8am in the account's local timezone.
+    // The cron runs every hour — we only send when the local hour is 8.
+    const accountTimezone = account.timezone || DEFAULT_TIMEZONE
+    const localHour = getLocalHour(accountTimezone)
+    if (localHour !== 8) {
+      skippedTimezone++
+      continue
+    }
 
     try {
       // Get today's pending tasks
@@ -94,7 +105,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           </a>
 
           <p style="font-size: 11px; color: #9CA3AF; margin-top: 32px;">
-            You're receiving this because you have GymAgents connected to ${account.account_name ?? 'your gym'}.
+            You're receiving this because GymAgents is connected to ${account.account_name ?? 'your gym'}.
           </p>
         </div>`,
       })
@@ -105,8 +116,8 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  console.log(`[daily-digest] Sent ${sent} digests`)
-  return NextResponse.json({ ok: true, sent })
+  console.log(`[daily-digest] Sent ${sent} digests (${skippedTimezone} skipped — not 8am local)`)
+  return NextResponse.json({ ok: true, sent, skippedTimezone })
 }
 
 export const GET = handler

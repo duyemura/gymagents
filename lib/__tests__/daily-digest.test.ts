@@ -34,6 +34,12 @@ vi.mock('@/lib/db/kpi', () => ({
   }),
 }))
 
+// Mock timezone to always return hour 8 (digest send hour) so tests pass
+vi.mock('@/lib/timezone', () => ({
+  getLocalHour: vi.fn().mockReturnValue(8),
+  DEFAULT_TIMEZONE: 'America/New_York',
+}))
+
 // Track which table is being queried for fine-grained mock control
 function makeChain(resolvedData: any) {
   const obj: any = {}
@@ -171,5 +177,31 @@ describe('GET /api/cron/daily-digest', () => {
 
     expect(res.status).toBe(200)
     expect(body.sent).toBe(0)
+  })
+
+  it('skips accounts when not 8am local time', async () => {
+    // Override getLocalHour to return non-8am hour
+    const { getLocalHour } = await import('@/lib/timezone')
+    vi.mocked(getLocalHour).mockReturnValue(14) // 2pm — not digest time
+
+    mockTeamMembers = [{
+      user_id: 'user-001',
+      accounts: { id: 'gym-001', account_name: 'Iron Temple', pushpress_api_key: 'key', timezone: 'America/Chicago' },
+      users: { email: 'owner@gym.com' },
+    }]
+    mockPendingTasks = [
+      { id: 'task-1', member_name: 'Alex', status: 'open' },
+    ]
+
+    const res = await handler(makeRequest('test-cron-secret'))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.sent).toBe(0)
+    expect(body.skippedTimezone).toBe(1)
+    expect(mockEmailSend).not.toHaveBeenCalled()
+
+    // Restore mock for other tests
+    vi.mocked(getLocalHour).mockReturnValue(8)
   })
 })

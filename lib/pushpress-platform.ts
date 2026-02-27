@@ -483,7 +483,6 @@ export async function buildAccountSnapshot(
   accountName: string,
   apiKey: string,
   companyId?: string,
-  avgMembershipPrice?: number,
 ): Promise<AccountSnapshot> {
   const now = new Date()
   const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
@@ -531,11 +530,12 @@ export async function buildAccountSnapshot(
   }
 
   // Build MemberData for each customer
-  const memberPrice = avgMembershipPrice ?? 150
+  // monthlyRevenue is not available from the PushPress API — left as 0 until
+  // the owner sets it in context (memories) or the API exposes plan pricing
   const members: MemberDataWithFlags[] = customers.map(customer => {
     const enrollment = enrollmentByCustomer.get(customer.id) ?? null
     const customerCheckins = checkinsByCustomer.get(customer.id) ?? []
-    return buildMemberData(customer, enrollment, customerCheckins, now, memberPrice)
+    return buildMemberData(customer, enrollment, customerCheckins, now, 0)
   })
 
   // Surface payment_failed events from 'alert' enrollment status
@@ -548,7 +548,7 @@ export async function buildAccountSnapshot(
         memberName: member.name,
         memberEmail: member.email,
         eventType: 'payment_failed',
-        amount: member.monthlyRevenue,
+        amount: 0,
         failedAt: new Date().toISOString(),
       })
     }

@@ -66,6 +66,14 @@ vi.mock('../db/commands', () => ({
   updateOutboundMessageStatus: vi.fn(),
 }))
 
+// ── Mock timezone (used for quiet hours check in autopilot + follow-ups) ──────
+vi.mock('../timezone', () => ({
+  getAccountTimezone: vi.fn().mockResolvedValue('America/New_York'),
+  isQuietHours: vi.fn().mockReturnValue(false), // not quiet hours in tests
+  getLocalTodayStartISO: vi.fn().mockReturnValue(new Date().toISOString()),
+  DEFAULT_TIMEZONE: 'America/New_York',
+}))
+
 // ── Import the route handler ──────────────────────────────────────────────────
 import { POST } from '../../app/api/cron/process-commands/route'
 

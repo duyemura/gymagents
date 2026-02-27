@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { formatStatsForMemory, writeStatsFromSnapshot, type BusinessStats } from '../sync-business-stats'
 
+// Mock timezone module (isValidTimezone is imported by sync-business-stats)
+vi.mock('../timezone', () => ({
+  isValidTimezone: vi.fn().mockReturnValue(true),
+  DEFAULT_TIMEZONE: 'America/New_York',
+}))
+
 // ── Mock Supabase ────────────────────────────────────────────────────────────
 
 const mockInsert = vi.fn()
@@ -64,7 +70,6 @@ const baseStats: BusinessStats = {
   leads: 6,
   newLast30Days: 8,
   cancelledLast30Days: 3,
-  estimatedMRR: 14700,
   syncedAt: '2026-02-26T12:00:00.000Z',
 }
 
@@ -96,14 +101,10 @@ describe('formatStatsForMemory', () => {
     expect(result).toContain('Last 30 days: +8 new, -3 cancelled')
   })
 
-  it('formats MRR in $k for large amounts', () => {
+  it('does not include estimated MRR (pricing not available from API)', () => {
     const result = formatStatsForMemory(baseStats)
-    expect(result).toContain('Estimated MRR: $15k/mo')
-  })
-
-  it('formats MRR in dollars for small amounts', () => {
-    const result = formatStatsForMemory({ ...baseStats, estimatedMRR: 450 })
-    expect(result).toContain('Estimated MRR: $450/mo')
+    expect(result).not.toContain('MRR')
+    expect(result).not.toContain('Estimated')
   })
 
   it('includes sync date', () => {
@@ -153,14 +154,14 @@ describe('writeStatsFromSnapshot', () => {
     const snapshot = {
       accountName: 'Test Gym',
       members: [
-        { status: 'active', memberSince: '2025-01-01', monthlyRevenue: 150 },
-        { status: 'active', memberSince: '2026-02-15', monthlyRevenue: 150 },
-        { status: 'cancelled', memberSince: '2024-06-01', monthlyRevenue: 0 },
-        { status: 'prospect', memberSince: '2026-02-20', monthlyRevenue: 0 },
+        { status: 'active', memberSince: '2025-01-01' },
+        { status: 'active', memberSince: '2026-02-15' },
+        { status: 'cancelled', memberSince: '2024-06-01' },
+        { status: 'prospect', memberSince: '2026-02-20' },
       ],
     }
 
-    const memoryId = await writeStatsFromSnapshot('acct-1', snapshot, 150)
+    const memoryId = await writeStatsFromSnapshot('acct-1', snapshot)
     expect(memoryId).toBe('mem-1')
     expect(mockInsert).toHaveBeenCalled()
     const content = mockInsert.mock.calls[0][0].content
@@ -169,31 +170,18 @@ describe('writeStatsFromSnapshot', () => {
     expect(content).toContain('1 leads')
   })
 
-  it('includes estimated MRR', async () => {
-    const snapshot = {
-      accountName: 'Test Gym',
-      members: [
-        { status: 'active', memberSince: '2025-01-01', monthlyRevenue: 150 },
-      ],
-    }
-
-    await writeStatsFromSnapshot('acct-1', snapshot, 200)
-    const content = mockInsert.mock.calls[0][0].content
-    expect(content).toContain('Estimated MRR: $200/mo')
-  })
-
   it('counts leads and cancelled separately', async () => {
     const snapshot = {
       accountName: 'Test Gym',
       members: [
-        { status: 'active', memberSince: '2025-01-01', monthlyRevenue: 150 },
-        { status: 'cancelled', memberSince: '2024-01-01', monthlyRevenue: 0 },
-        { status: 'prospect', memberSince: '2026-02-01', monthlyRevenue: 0 },
-        { status: 'paused', memberSince: '2025-06-01', monthlyRevenue: 100 },
+        { status: 'active', memberSince: '2025-01-01' },
+        { status: 'cancelled', memberSince: '2024-01-01' },
+        { status: 'prospect', memberSince: '2026-02-01' },
+        { status: 'paused', memberSince: '2025-06-01' },
       ],
     }
 
-    await writeStatsFromSnapshot('acct-1', snapshot, 150)
+    await writeStatsFromSnapshot('acct-1', snapshot)
     const content = mockInsert.mock.calls[0][0].content
     expect(content).toContain('1 active')
     expect(content).toContain('1 paused')

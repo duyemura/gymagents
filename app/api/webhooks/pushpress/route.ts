@@ -231,16 +231,6 @@ async function processWebhookAsync(rawBody: string) {
           .single()
 
         if (winBackTask) {
-          // Fetch gym's avg membership price for attribution
-          const { data: gymData } = await supabaseAdmin
-            .from('accounts')
-            .select('avg_membership_price')
-            .eq('id', account.id)
-            .single()
-
-          const membershipValue = gymData?.avg_membership_price ?? 150
-          const recoveryValue = membershipValue * 3
-
           await supabaseAdmin
             .from('agent_tasks')
             .update({
@@ -248,14 +238,13 @@ async function processWebhookAsync(rawBody: string) {
               outcome: 'recovered',
               outcome_reason: 'member_reactivated_after_win_back',
               outcome_score: 95,
-              attributed_value: recoveryValue,
               attributed_at: new Date().toISOString(),
               resolved_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
             .eq('id', winBackTask.id)
 
-          console.log(`[webhook] Win-back attributed! task=${winBackTask.id} value=$${recoveryValue}`)
+          console.log(`[webhook] Win-back attributed! task=${winBackTask.id}`)
         }
       } catch (err) {
         console.error('[webhook] win-back attribution error:', err)

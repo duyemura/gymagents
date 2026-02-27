@@ -274,7 +274,6 @@ const DEFAULT_ACCOUNT = {
   account_name: 'Test Gym',
   pushpress_api_key: 'encrypted-key',
   pushpress_company_id: 'company-001',
-  avg_membership_price: 150,
   member_count: 50,
 }
 

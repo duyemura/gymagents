@@ -18,7 +18,11 @@
     },
     {
       "path": "/api/cron/daily-digest",
-      "schedule": "0 14 * * *"
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/extract-memories",
+      "schedule": "0 3 * * *"
     }
   ]
 }

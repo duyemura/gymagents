@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
       .from('agents')
       .select('*')
       .eq('account_id', account.id)
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: false })
 
     // Fetch automations and merge into agent objects for backward-compatible response
     const { data: automations } = await supabaseAdmin

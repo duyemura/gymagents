@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import AgentPromptBuilder from '@/components/AgentPromptBuilder'
 
@@ -43,18 +43,18 @@ const TRIGGER_OPTIONS = [
 ]
 
 const PUSHPRESS_EVENTS = [
-  { value: 'member.cancelled', label: 'Member cancelled' },
-  { value: 'lead.created', label: 'New lead submitted' },
+  { value: 'member.cancelled', label: 'Member cancelled their membership' },
+  { value: 'lead.created', label: 'New lead submitted (trial, walk-in)' },
   { value: 'member.created', label: 'New member signed up' },
-  { value: 'payment.failed', label: 'Payment failed' },
-  { value: 'checkin.created', label: 'Member checked in' },
+  { value: 'payment.failed', label: 'Membership payment failed' },
+  { value: 'checkin.created', label: 'Member checked into the gym' },
 ]
 
 function scheduleLabel(triggerId: string, hour: number): string {
   const h = hour === 0 ? '12am' : hour === 12 ? '12pm' : hour < 12 ? `${hour}am` : `${hour - 12}pm`
-  if (triggerId === 'daily') return `Runs daily at ${h} UTC`
-  if (triggerId === 'weekly') return `Runs every Monday at ${h} UTC`
-  if (triggerId === 'event') return 'Triggers on events'
+  if (triggerId === 'daily') return `Runs daily at ${h} your gym's local time`
+  if (triggerId === 'weekly') return `Runs every Monday at ${h} your gym's local time`
+  if (triggerId === 'event') return 'Triggers on gym events'
   return 'Run manually'
 }
 
@@ -68,6 +68,7 @@ function Header({ onSkip }: { onSkip?: () => void }) {
           <span className="font-bold text-[10px] text-white">G</span>
         </div>
         <span className="font-semibold text-sm text-gray-900">GymAgents</span>
+        <span className="text-xs text-gray-400 ml-2">Gym Setup</span>
       </div>
       {onSkip && (
         <>
@@ -128,11 +129,12 @@ function Progress({ step }: { step: number }) {
 // ── Loading screen ────────────────────────────────────────────────────────────
 
 const LOADING_MESSAGES = [
-  'Connecting to your PushPress data…',
-  'Analyzing member attendance patterns…',
-  'Looking at payment history…',
-  'Identifying opportunities…',
-  'Building your recommendation…',
+  'Connecting to your gym\'s PushPress data…',
+  'Analyzing member check-in patterns…',
+  'Looking at membership and payment history…',
+  'Checking class attendance trends…',
+  'Identifying members who need attention…',
+  'Building your gym\'s first agent…',
 ]
 
 function LoadingScreen() {
@@ -157,7 +159,7 @@ function LoadingScreen() {
             </svg>
           </div>
         </div>
-        <h2 className="text-lg font-bold text-gray-900 mb-2">Learning your business</h2>
+        <h2 className="text-lg font-bold text-gray-900 mb-2">Learning your gym</h2>
         <p className="text-sm transition-opacity duration-500" style={{ color: '#6B7280' }} key={msgIndex}>
           {LOADING_MESSAGES[msgIndex]}
         </p>
@@ -189,15 +191,7 @@ function RecommendationCard({
             <h1 className="text-xl font-bold text-gray-900">{rec.headline}</h1>
           </div>
 
-          {/* Data-driven insight callout */}
-          <div className="mb-6 px-4 py-3 border-l-2" style={{ borderColor: '#0063FF', backgroundColor: '#F0F6FF' }}>
-            <p className="text-[10px] font-semibold tracking-widest uppercase mb-1" style={{ color: '#0063FF' }}>
-              WHY THIS AGENT
-            </p>
-            <p className="text-sm text-gray-700 leading-relaxed">{rec.reasoning}</p>
-          </div>
-
-          <div className="flex gap-3 mb-6">
+          <div className="flex gap-3 mb-4">
             {rec.stats.map((stat, i) => (
               <div key={i} className="flex-1 border p-4 bg-white" style={{ borderColor: stat.emphasis ? '#0063FF' : '#E5E7EB' }}>
                 <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1">{stat.label}</p>
@@ -205,8 +199,9 @@ function RecommendationCard({
               </div>
             ))}
           </div>
-          <div className="bg-white border border-gray-200 p-6 mb-6">
-            <div className="flex items-start gap-3 mb-3">
+          <div className="bg-white border border-gray-200 p-5 mb-6">
+            <p className="text-xs text-gray-500 leading-relaxed mb-4">{rec.reasoning}</p>
+            <div className="flex items-start gap-3">
               <div className="w-8 h-8 flex items-center justify-center flex-shrink-0 mt-0.5" style={{ backgroundColor: '#0063FF' }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2a10 10 0 1 0 10 10H12V2Z" /><path d="M12 2a10 10 0 0 1 10 10" />
@@ -272,7 +267,7 @@ function FirstRunScreen({
             Let's see what {agentName} can do.
           </h1>
           <p className="text-sm text-gray-400 mb-8">
-            Run it once against your live data to see what it finds. Takes about 20 seconds.
+            Run it once against your gym's live data to see what it finds. Takes about 20 seconds.
           </p>
 
           {/* Agent card */}
@@ -472,6 +467,9 @@ export default function SetupPage() {
   const fieldCls = 'w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors'
   const labelCls = 'text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1 block'
 
+  // Guard against React StrictMode double-invoke
+  const didFetch = useRef(false)
+
   // ── Fetch recommendation ────────────────────────────────────────────────────
 
   const fetchRecommendation = async () => {
@@ -486,6 +484,7 @@ export default function SetupPage() {
       const { recommendation: rec, snapshotSummary } = await res.json()
       setRecommendation(rec)
       setAccountName(snapshotSummary?.accountName || 'Your Gym')
+
       setPhase('recommendation')
     } catch (err: any) {
       console.error('[setup] recommendation fetch failed:', err)
@@ -495,6 +494,8 @@ export default function SetupPage() {
   }
 
   useEffect(() => {
+    if (didFetch.current) return
+    didFetch.current = true
     fetchRecommendation()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -657,7 +658,7 @@ export default function SetupPage() {
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
           </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-2">Couldn't analyze your data</h2>
+          <h2 className="text-lg font-bold text-gray-900 mb-2">Couldn't analyze your gym's data</h2>
           <p className="text-sm text-gray-500 mb-2">{loadError}</p>
           <p className="text-xs text-gray-400 mb-6">Check the terminal for more details.</p>
           <div className="flex flex-col gap-2">
@@ -732,8 +733,8 @@ export default function SetupPage() {
           {step === 1 && (
             <div>
               <div className="mb-6">
-                <h1 className="text-xl font-bold text-gray-900 mb-1">Build your first agent</h1>
-                <p className="text-sm text-gray-400">Name it, describe what it does, and let the AI write the prompt.</p>
+                <h1 className="text-xl font-bold text-gray-900 mb-1">Build your gym's first agent</h1>
+                <p className="text-sm text-gray-400">Name it, describe what it does for your gym, and let AI write the prompt.</p>
               </div>
               <AgentPromptBuilder
                 name={agentName}
@@ -742,7 +743,7 @@ export default function SetupPage() {
                 onNameChange={setAgentName}
                 onDescriptionChange={setDescription}
                 onSystemPromptChange={setSystemPrompt}
-                descriptionPlaceholder="e.g. Find members who haven't checked in for 2+ weeks and draft a personal check-in message."
+                descriptionPlaceholder="e.g. Find gym members who haven't checked in for 2+ weeks and draft a personal check-in email from the coach."
                 autoGenerate={fromRecommendation}
               />
               <div className="mt-6">
@@ -783,7 +784,7 @@ export default function SetupPage() {
 
               {(selectedTrigger === 'daily' || selectedTrigger === 'weekly') && (
                 <div className="mb-4">
-                  <label className={labelCls}>Run at (UTC)</label>
+                  <label className={labelCls}>Run at (your gym's local time)</label>
                   <select value={runHour} onChange={e => setRunHour(Number(e.target.value))} className={fieldCls + ' bg-white'}>
                     {Array.from({ length: 24 }, (_, i) => {
                       const label = i === 0 ? '12:00 AM' : i === 12 ? '12:00 PM' : i < 12 ? `${i}:00 AM` : `${i - 12}:00 PM`
