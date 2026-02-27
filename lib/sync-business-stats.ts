@@ -20,7 +20,23 @@ import {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export interface BusinessInfo {
+  name: string
+  address?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
+  subdomain?: string              // PushPress subdomain / website
+  phone?: string
+  timezone?: string
+}
+
 export interface BusinessStats {
+  // Business info
+  businessInfo: BusinessInfo
+
+  // Member breakdown
   totalMembers: number
   active: number
   paused: number
@@ -28,10 +44,20 @@ export interface BusinessStats {
   leads: number
   newLast30Days: number
   cancelledLast30Days: number
-  avgVisitsPerWeek: number | null   // null if no checkin data sampled
+
+  // Attendance
+  totalCheckins30Days: number     // total checkins across all sampled members (30d)
+  checkinsPerMemberPerWeek: number | null  // avg per active member per week
   attendanceTrend: 'improving' | 'stable' | 'declining' | 'unknown'
-  estimatedMRR: number              // monthly recurring revenue estimate
-  syncedAt: string                  // ISO timestamp
+  sampleSize: number              // how many members we sampled for attendance
+
+  // Classes / programs
+  classNames: string[]            // unique class/program names seen in checkins
+
+  // Revenue
+  estimatedMRR: number
+
+  syncedAt: string
 }
 
 export interface SyncResult {
@@ -43,7 +69,6 @@ export interface SyncResult {
 
 /**
  * Fetch current metrics from PushPress v3 and write/update business_stats memory.
- * Returns the stats object and the memory ID.
  */
 export async function syncBusinessStats(
   accountId: string,
@@ -57,7 +82,11 @@ export async function syncBusinessStats(
   const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
   const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
 
-  // ── Fetch all customers (paginated) ───────────────────────────────────────
+  // ── Fetch company info ──────────────────────────────────────────────────
+
+  const businessInfo = await fetchCompanyInfo(client)
+
+  // ── Fetch all customers (paginated) ─────────────────────────────────────
 
   const customers: any[] = []
   let page = 1
@@ -75,15 +104,10 @@ export async function syncBusinessStats(
     page++
   }
 
-  // ── Classify members ──────────────────────────────────────────────────────
+  // ── Classify members ────────────────────────────────────────────────────
 
-  let active = 0
-  let paused = 0
-  let cancelled = 0
-  let leads = 0
-  let newLast30Days = 0
-  let cancelledLast30Days = 0
-
+  let active = 0, paused = 0, cancelled = 0, leads = 0
+  let newLast30Days = 0, cancelledLast30Days = 0
   const activeCustomerIds: string[] = []
 
   for (const c of customers) {
@@ -98,18 +122,18 @@ export async function syncBusinessStats(
     }
     if (status === 'paused') { paused++; continue }
 
-    // active
     active++
     activeCustomerIds.push(c.id)
     if (memberSince >= thirtyDaysAgo) newLast30Days++
   }
 
-  // ── Sample attendance from active members ──────────────────────────────────
+  // ── Sample attendance from active members ───────────────────────────────
 
   const SAMPLE_SIZE = Math.min(activeCustomerIds.length, 30)
   let totalRecentCheckins = 0
   let totalPreviousCheckins = 0
   let sampledCount = 0
+  const classNameSet = new Set<string>()
 
   for (let i = 0; i < SAMPLE_SIZE; i++) {
     try {
@@ -126,19 +150,23 @@ export async function syncBusinessStats(
         if (isNaN(d.getTime())) continue
         if (d >= thirtyDaysAgo) recent++
         else if (d >= sixtyDaysAgo) previous++
+
+        // Capture class/program names
+        const className = chk.name || chk.className || chk.class_name || chk.title
+        if (className && typeof className === 'string') classNameSet.add(className)
       }
 
       totalRecentCheckins += recent
       totalPreviousCheckins += previous
       sampledCount++
     } catch {
-      // Skip failures — still count what we can
+      // Skip failures
     }
   }
 
-  // ── Compute metrics ───────────────────────────────────────────────────────
+  // ── Compute metrics ─────────────────────────────────────────────────────
 
-  const avgVisitsPerWeek = sampledCount > 0
+  const checkinsPerMemberPerWeek = sampledCount > 0
     ? Math.round((totalRecentCheckins / sampledCount / 4.3) * 10) / 10
     : null
 
@@ -150,9 +178,13 @@ export async function syncBusinessStats(
     else attendanceTrend = 'stable'
   }
 
-  const estimatedMRR = active * avgMembershipPrice
+  // Extrapolate total 30d checkins from sample
+  const totalCheckins30Days = sampledCount > 0 && active > 0
+    ? Math.round((totalRecentCheckins / sampledCount) * active)
+    : 0
 
   const stats: BusinessStats = {
+    businessInfo,
     totalMembers: customers.length,
     active,
     paused,
@@ -160,29 +192,69 @@ export async function syncBusinessStats(
     leads,
     newLast30Days,
     cancelledLast30Days,
-    avgVisitsPerWeek,
+    totalCheckins30Days,
+    checkinsPerMemberPerWeek,
     attendanceTrend,
-    estimatedMRR,
+    sampleSize: sampledCount,
+    classNames: Array.from(classNameSet).slice(0, 20), // cap at 20
+    estimatedMRR: active * avgMembershipPrice,
     syncedAt: now.toISOString(),
   }
 
-  // ── Write to memory ───────────────────────────────────────────────────────
-
   const memoryId = await writeStatsMemory(accountId, stats)
-
   return { stats, memoryId }
+}
+
+// ── Fetch company info from /company endpoint ───────────────────────────────
+
+async function fetchCompanyInfo(
+  client: ReturnType<typeof createPushPressClient>,
+): Promise<BusinessInfo> {
+  const info: BusinessInfo = { name: '' }
+
+  try {
+    const raw = await client.fetch('/company')
+    const co = raw?.data ?? raw
+
+    info.name = co?.name || ''
+
+    // Address fields — try multiple conventions
+    const addr = co?.address || co
+    info.address = addr?.address || addr?.street || addr?.line1 || addr?.address1 || ''
+    info.city = addr?.city || ''
+    info.state = addr?.state || addr?.province || addr?.region || ''
+    info.postalCode = addr?.zip || addr?.postalCode || addr?.postal_code || addr?.zipcode || ''
+    info.country = addr?.country || ''
+    info.subdomain = co?.subdomain || co?.slug || ''
+    info.phone = co?.phone || co?.phoneNumber || co?.phone_number || ''
+    info.timezone = co?.timezone || co?.tz || ''
+
+    console.log('[sync] /company fields:', Object.keys(co || {}).join(', '))
+  } catch (err: any) {
+    console.log('[sync] /company failed (non-blocking):', err.message)
+  }
+
+  return info
 }
 
 // ── Write stats from an existing snapshot (avoids double-fetching) ───────────
 
 /**
  * Build stats from a snapshot that was already fetched (e.g. by the recommend
- * endpoint) and write them to the business_stats memory. Avoids calling
- * PushPress a second time.
+ * endpoint) and write them to the business_stats memory.
  */
 export async function writeStatsFromSnapshot(
   accountId: string,
-  snapshot: { members: Array<{ status: string; memberSince: string; recentCheckinsCount: number; previousCheckinsCount: number; monthlyRevenue: number }> },
+  snapshot: {
+    accountName: string
+    members: Array<{
+      status: string
+      memberSince: string
+      recentCheckinsCount: number
+      previousCheckinsCount: number
+      monthlyRevenue: number
+    }>
+  },
   avgMembershipPrice: number,
 ): Promise<string> {
   const now = new Date()
@@ -213,7 +285,7 @@ export async function writeStatsFromSnapshot(
     }
   }
 
-  const avgVisitsPerWeek = sampledCount > 0
+  const checkinsPerMemberPerWeek = sampledCount > 0
     ? Math.round((totalRecent / sampledCount / 4.3) * 10) / 10
     : null
 
@@ -225,7 +297,12 @@ export async function writeStatsFromSnapshot(
     else attendanceTrend = 'stable'
   }
 
+  const totalCheckins30Days = sampledCount > 0 && active > 0
+    ? Math.round((totalRecent / sampledCount) * active)
+    : 0
+
   const stats: BusinessStats = {
+    businessInfo: { name: snapshot.accountName },
     totalMembers: snapshot.members.length,
     active,
     paused,
@@ -233,8 +310,11 @@ export async function writeStatsFromSnapshot(
     leads,
     newLast30Days,
     cancelledLast30Days,
-    avgVisitsPerWeek,
+    totalCheckins30Days,
+    checkinsPerMemberPerWeek,
     attendanceTrend,
+    sampleSize: sampledCount,
+    classNames: [], // not available from snapshot
     estimatedMRR: active * avgMembershipPrice,
     syncedAt: now.toISOString(),
   }
@@ -247,6 +327,16 @@ export async function writeStatsFromSnapshot(
 export function formatStatsForMemory(stats: BusinessStats): string {
   const lines: string[] = []
 
+  // Business info
+  const bi = stats.businessInfo
+  if (bi.city || bi.state) {
+    const location = [bi.city, bi.state].filter(Boolean).join(', ')
+    const extra = [bi.postalCode, bi.country].filter(Boolean).join(' ')
+    lines.push(`Location: ${location}${extra ? ' ' + extra : ''}`)
+  }
+  if (bi.phone) lines.push(`Phone: ${bi.phone}`)
+  if (bi.timezone) lines.push(`Timezone: ${bi.timezone}`)
+
   // Member breakdown
   const parts = [`${stats.active} active`]
   if (stats.paused > 0) parts.push(`${stats.paused} paused`)
@@ -254,7 +344,7 @@ export function formatStatsForMemory(stats: BusinessStats): string {
   if (stats.leads > 0) parts.push(`${stats.leads} leads`)
   lines.push(`Members: ${stats.totalMembers} total (${parts.join(', ')})`)
 
-  // Changes
+  // 30-day changes
   if (stats.newLast30Days > 0 || stats.cancelledLast30Days > 0) {
     const changes: string[] = []
     if (stats.newLast30Days > 0) changes.push(`+${stats.newLast30Days} new`)
@@ -263,8 +353,16 @@ export function formatStatsForMemory(stats: BusinessStats): string {
   }
 
   // Attendance
-  if (stats.avgVisitsPerWeek !== null) {
-    lines.push(`Avg attendance: ${stats.avgVisitsPerWeek} visits/week (trend: ${stats.attendanceTrend})`)
+  if (stats.totalCheckins30Days > 0) {
+    lines.push(`Checkins (last 30 days): ~${stats.totalCheckins30Days} total`)
+  }
+  if (stats.checkinsPerMemberPerWeek !== null) {
+    lines.push(`Avg per member: ${stats.checkinsPerMemberPerWeek} visits/week (trend: ${stats.attendanceTrend})`)
+  }
+
+  // Classes / programs
+  if (stats.classNames.length > 0) {
+    lines.push(`Programs: ${stats.classNames.join(', ')}`)
   }
 
   // Revenue
@@ -287,7 +385,6 @@ export function formatStatsForMemory(stats: BusinessStats): string {
 async function writeStatsMemory(accountId: string, stats: BusinessStats): Promise<string> {
   const content = formatStatsForMemory(stats)
 
-  // Find existing business_stats memory
   const existing = await getAccountMemories(accountId, { category: 'business_stats' })
   const statsMemory = existing.find(m => m.source === 'system')
 
