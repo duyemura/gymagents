@@ -48,6 +48,8 @@ const TASK_TYPE_TO_FILE: Record<string, string> = {
   // Agent skill_type aliases (autopilot rows use these)
   at_risk_detector: 'churn-risk.md',
   payment_recovery: 'payment-recovery.md',
+  lead_reactivation: 'lead-reactivation.md',
+  lead_nurture: 'lead-followup.md',
 }
 
 // ── File cache ───────────────────────────────────────────────────────────────

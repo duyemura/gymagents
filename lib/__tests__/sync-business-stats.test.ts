@@ -63,13 +63,14 @@ const baseStats: BusinessStats = {
     phone: '(816) 555-1234',
     timezone: 'America/Chicago',
   },
-  totalMembers: 121,
+  totalMembers: 103,   // active + paused
   active: 98,
   paused: 5,
   cancelled: 12,
   leads: 6,
   newLast30Days: 8,
   cancelledLast30Days: 3,
+  estimatedMRR: 14700,  // 98 * 150
   syncedAt: '2026-02-26T12:00:00.000Z',
 }
 
@@ -91,9 +92,12 @@ describe('formatStatsForMemory', () => {
     expect(result).toContain('Timezone: America/Chicago')
   })
 
-  it('includes total member count with breakdown', () => {
+  it('shows active members prominently', () => {
     const result = formatStatsForMemory(baseStats)
-    expect(result).toContain('Members: 121 total (98 active, 5 paused, 12 cancelled, 6 leads)')
+    expect(result).toContain('Active members: 98')
+    expect(result).toContain('Paused: 5')
+    expect(result).toContain('Former members: 12')
+    expect(result).toContain('Leads: 6')
   })
 
   it('shows 30-day changes', () => {
@@ -101,10 +105,9 @@ describe('formatStatsForMemory', () => {
     expect(result).toContain('Last 30 days: +8 new, -3 cancelled')
   })
 
-  it('does not include estimated MRR (pricing not available from API)', () => {
+  it('includes estimated MRR', () => {
     const result = formatStatsForMemory(baseStats)
-    expect(result).not.toContain('MRR')
-    expect(result).not.toContain('Estimated')
+    expect(result).toContain('Estimated MRR: $14.7k/mo')
   })
 
   it('includes sync date', () => {
@@ -114,7 +117,8 @@ describe('formatStatsForMemory', () => {
 
   it('omits paused when zero', () => {
     const result = formatStatsForMemory({ ...baseStats, paused: 0 })
-    expect(result).toContain('Members: 121 total (98 active, 12 cancelled, 6 leads)')
+    expect(result).not.toContain('Paused')
+    expect(result).toContain('Active members: 98')
   })
 
   it('omits 30-day changes when both zero', () => {
@@ -161,13 +165,13 @@ describe('writeStatsFromSnapshot', () => {
       ],
     }
 
-    const memoryId = await writeStatsFromSnapshot('acct-1', snapshot)
+    const memoryId = await writeStatsFromSnapshot('acct-1', snapshot, 150)
     expect(memoryId).toBe('mem-1')
     expect(mockInsert).toHaveBeenCalled()
     const content = mockInsert.mock.calls[0][0].content
-    expect(content).toContain('Members: 4 total')
-    expect(content).toContain('2 active')
-    expect(content).toContain('1 leads')
+    expect(content).toContain('Active members: 2')
+    expect(content).toContain('Leads: 1')
+    expect(content).toContain('Estimated MRR: $300/mo')  // 2 active * $150
   })
 
   it('counts leads and cancelled separately', async () => {
@@ -181,11 +185,11 @@ describe('writeStatsFromSnapshot', () => {
       ],
     }
 
-    await writeStatsFromSnapshot('acct-1', snapshot)
+    await writeStatsFromSnapshot('acct-1', snapshot, 150)
     const content = mockInsert.mock.calls[0][0].content
-    expect(content).toContain('1 active')
-    expect(content).toContain('1 paused')
-    expect(content).toContain('1 cancelled')
-    expect(content).toContain('1 leads')
+    expect(content).toContain('Active members: 1')
+    expect(content).toContain('Paused: 1')
+    expect(content).toContain('Former members: 1')
+    expect(content).toContain('Leads: 1')
   })
 })

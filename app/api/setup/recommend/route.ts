@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     const accountId = (account as any).id
     const { data: accountRow, error: fetchErr } = await supabaseAdmin
       .from('accounts')
-      .select('pushpress_api_key, pushpress_company_id, account_name, gym_name, member_count')
+      .select('pushpress_api_key, pushpress_company_id, account_name, member_count, avg_membership_price')
       .eq('id', accountId)
       .single()
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
 
     const apiKey = decrypt(accountRow.pushpress_api_key)
     const companyId = accountRow.pushpress_company_id || ''
-    const accountName = accountRow.account_name || accountRow.gym_name || 'Your Gym'
+    const accountName = accountRow.account_name || 'Your Gym'
 
     console.log('[setup/recommend] Fetching data for', accountName)
 
@@ -50,8 +50,9 @@ export async function POST(req: NextRequest) {
     console.log('[setup/recommend] Recommendation:', recommendation.agentType, '-', recommendation.name)
 
     // Write business stats + schedule memories with accurate data from paginated fetch
+    const avgPrice = accountRow.avg_membership_price ?? 150
     await Promise.all([
-      writeStatsFromSnapshot(accountId, snapshot),
+      writeStatsFromSnapshot(accountId, snapshot, avgPrice),
       writeScheduleFromSnapshot(accountId, snapshot),
     ])
 

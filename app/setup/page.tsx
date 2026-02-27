@@ -58,6 +58,66 @@ function scheduleLabel(triggerId: string, hour: number): string {
   return 'Run manually'
 }
 
+// ── How it works — per agent type ────────────────────────────────────────────
+
+function getHowItWorks(rec: Recommendation): string[] {
+  const trigger = rec.trigger.mode === 'cron'
+    ? rec.trigger.schedule === 'daily' ? 'Every morning' : 'Every Monday'
+    : 'When the event fires'
+
+  switch (rec.agentType) {
+    case 'at_risk_detector':
+      return [
+        `${trigger}, the agent scans your PushPress check-in data for members whose attendance is dropping or who've stopped showing up.`,
+        'For each at-risk member, it drafts a personal check-in message — written in your voice, not a generic template.',
+        'The drafts show up in your dashboard for you to review. Approve, edit, or skip each one.',
+        'Approved messages get sent as emails from your gym. If they reply, you see it in your dashboard.',
+      ]
+    case 'payment_recovery':
+      return [
+        'When a membership payment fails in PushPress, the agent picks it up automatically.',
+        'It drafts a friendly heads-up to the member — no guilt, just "hey, your payment didn\'t go through."',
+        'You review the draft in your dashboard before anything sends.',
+        'If the member replies or fixes their payment, the agent tracks the outcome.',
+      ]
+    case 'win_back':
+      return [
+        'When a member cancels in PushPress, the agent creates a win-back task within hours.',
+        'It drafts a personal note — not a "we miss you" template, but something specific to that member.',
+        'You review and approve the message before it sends.',
+        'If they don\'t reply, it follows up twice more over 10 days, then stops.',
+      ]
+    case 'new_member_onboarding':
+      return [
+        `${trigger}, the agent checks for members in their first 30 days who might need a check-in.`,
+        'It drafts a personal message — "how\'s it going?" style, not a sales pitch.',
+        'You review each message in your dashboard before it sends.',
+        'It tracks whether new members keep showing up after the check-in.',
+      ]
+    case 'lead_reactivation':
+      return [
+        `${trigger}, the agent identifies old leads in your PushPress system who never converted.`,
+        'It drafts a low-pressure personal message — "still thinking about it?" not "BUY NOW."',
+        'You review every message before it goes out. Nothing sends automatically.',
+        'If a lead replies, you see the conversation in your dashboard and can take over anytime.',
+      ]
+    case 'lead_followup':
+      return [
+        'When a new lead comes into PushPress, the agent drafts a same-day follow-up message.',
+        'The message is personal and conversational — based on what the lead signed up for.',
+        'You review and approve the message in your dashboard before it sends.',
+        'If they reply, the agent handles the back-and-forth or flags you to jump in.',
+      ]
+    default:
+      return [
+        `${trigger}, the agent analyzes your PushPress data to find members who need attention.`,
+        'It drafts a personal message for each member it flags.',
+        'You review every message in your dashboard before anything sends.',
+        'It tracks whether outreach leads to the member coming back.',
+      ]
+  }
+}
+
 // ── Shared header ─────────────────────────────────────────────────────────────
 
 function Header({ onSkip }: { onSkip?: () => void }) {
@@ -212,15 +272,29 @@ function RecommendationCard({
                 <p className="text-xs text-gray-500 mt-0.5">{rec.description}</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 mt-4 pt-3 border-t border-gray-100">
-              <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">RUNS</span>
-              <span className="text-xs text-gray-700">
-                {rec.trigger.mode === 'cron'
-                  ? rec.trigger.schedule === 'daily' ? 'Every morning' : 'Weekly'
-                  : `When ${PUSHPRESS_EVENTS.find(e => e.value === rec.trigger.event)?.label.toLowerCase() || 'event fires'}`}
-              </span>
+          </div>
+
+          {/* How it works — concrete steps so the owner knows exactly what happens */}
+          <div className="border border-gray-200 bg-white p-5 mb-6">
+            <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-3">HOW IT WORKS</p>
+            <div className="space-y-3">
+              {getHowItWorks(rec).map((step, i) => (
+                <div key={i} className="flex items-start gap-3">
+                  <div className="w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5 text-[10px] font-bold text-gray-400" style={{ backgroundColor: '#F3F4F6' }}>
+                    {i + 1}
+                  </div>
+                  <p className="text-xs text-gray-600 leading-relaxed">{step}</p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-gray-100 flex items-start gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              </svg>
+              <p className="text-xs text-gray-500">Nothing sends without your approval. You review every message before it goes out.</p>
             </div>
           </div>
+
           <div className="space-y-2">
             <button onClick={onAccept} className="w-full py-3 text-sm font-bold text-white transition-opacity hover:opacity-80" style={{ backgroundColor: '#0063FF' }}>
               Start with this agent →
@@ -477,6 +551,10 @@ export default function SetupPage() {
     setLoadError('')
     try {
       const res = await fetch('/api/setup/recommend', { method: 'POST' })
+      if (res.status === 401) {
+        router.replace('/')
+        return
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || `Failed to analyze (${res.status})`)

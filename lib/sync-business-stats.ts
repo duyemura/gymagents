@@ -39,13 +39,16 @@ export interface BusinessStats {
   businessInfo: BusinessInfo
 
   // Member breakdown
-  totalMembers: number
+  totalMembers: number          // active + paused (people currently paying or on hold)
   active: number
   paused: number
   cancelled: number
   leads: number
   newLast30Days: number
   cancelledLast30Days: number
+
+  // Revenue
+  estimatedMRR: number          // active * avg membership price
 
   syncedAt: string
 }
@@ -64,6 +67,7 @@ export async function syncBusinessStats(
   accountId: string,
   apiKey: string,
   companyId: string,
+  avgMembershipPrice = 150,
 ): Promise<SyncResult> {
   const client = createPushPressClient(apiKey, companyId)
   const now = new Date()
@@ -115,13 +119,14 @@ export async function syncBusinessStats(
 
   const stats: BusinessStats = {
     businessInfo,
-    totalMembers: customers.length,
+    totalMembers: active + paused,
     active,
     paused,
     cancelled,
     leads,
     newLast30Days,
     cancelledLast30Days,
+    estimatedMRR: active * avgMembershipPrice,
     syncedAt: now.toISOString(),
   }
 
@@ -189,6 +194,7 @@ export async function writeStatsFromSnapshot(
       memberSince: string
     }>
   },
+  avgMembershipPrice = 150,
 ): Promise<string> {
   const now = new Date()
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -213,13 +219,14 @@ export async function writeStatsFromSnapshot(
 
   const stats: BusinessStats = {
     businessInfo: { name: snapshot.accountName },
-    totalMembers: snapshot.members.length,
+    totalMembers: active + paused,
     active,
     paused,
     cancelled,
     leads,
     newLast30Days,
     cancelledLast30Days,
+    estimatedMRR: active * avgMembershipPrice,
     syncedAt: now.toISOString(),
   }
 
@@ -241,12 +248,11 @@ export function formatStatsForMemory(stats: BusinessStats): string {
   if (bi.phone) lines.push(`Phone: ${bi.phone}`)
   if (bi.timezone) lines.push(`Timezone: ${bi.timezone}`)
 
-  // Member breakdown
-  const parts = [`${stats.active} active`]
-  if (stats.paused > 0) parts.push(`${stats.paused} paused`)
-  if (stats.cancelled > 0) parts.push(`${stats.cancelled} cancelled`)
-  if (stats.leads > 0) parts.push(`${stats.leads} leads`)
-  lines.push(`Members: ${stats.totalMembers} total (${parts.join(', ')})`)
+  // Member breakdown — totalMembers = active + paused (current members)
+  lines.push(`Active members: ${stats.active}`)
+  if (stats.paused > 0) lines.push(`Paused: ${stats.paused}`)
+  if (stats.cancelled > 0) lines.push(`Former members: ${stats.cancelled}`)
+  if (stats.leads > 0) lines.push(`Leads: ${stats.leads}`)
 
   // 30-day changes
   if (stats.newLast30Days > 0 || stats.cancelledLast30Days > 0) {
@@ -254,6 +260,14 @@ export function formatStatsForMemory(stats: BusinessStats): string {
     if (stats.newLast30Days > 0) changes.push(`+${stats.newLast30Days} new`)
     if (stats.cancelledLast30Days > 0) changes.push(`-${stats.cancelledLast30Days} cancelled`)
     lines.push(`Last 30 days: ${changes.join(', ')}`)
+  }
+
+  // Revenue
+  if (stats.estimatedMRR > 0) {
+    const mrr = stats.estimatedMRR >= 1000
+      ? `$${(stats.estimatedMRR / 1000).toFixed(1).replace(/\.0$/, '')}k`
+      : `$${Math.round(stats.estimatedMRR)}`
+    lines.push(`Estimated MRR: ${mrr}/mo`)
   }
 
   // Sync time

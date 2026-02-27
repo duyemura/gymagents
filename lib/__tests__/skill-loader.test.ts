@@ -61,6 +61,17 @@ describe('loadSkillPrompt', () => {
     expect(prompt).toContain('Extra Caution')
   })
 
+  it('loads lead_reactivation skill', async () => {
+    const prompt = await loadSkillPrompt('lead_reactivation')
+    expect(prompt).toContain('Lead Re-Activation')
+    expect(prompt).toContain('ghost_lead')
+  })
+
+  it('loads at_risk_detector using churn-risk skill', async () => {
+    const prompt = await loadSkillPrompt('at_risk_detector')
+    expect(prompt).toContain('Churn Risk')
+  })
+
   it('returns base-only for unknown task type', async () => {
     const prompt = await loadSkillPrompt('totally_unknown_type')
     expect(prompt).toContain('Base Instructions')
