@@ -15,6 +15,7 @@ import AgentRoster from '@/components/AgentRoster'
 import ScheduledRuns from '@/components/ScheduledRuns'
 import QuickQueue from '@/components/QuickQueue'
 import SkillsPanel from '@/components/SkillsPanel'
+import AgentChat from '@/components/AgentChat'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -159,6 +160,7 @@ function DashboardContent() {
   const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
   const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'skills' | 'settings'>('gm')
   const [editingAgent, setEditingAgent] = useState<any | null>(undefined) // undefined = list, null = new, object = edit
+  const [chatSession, setChatSession] = useState<{ agentId: string; agentName: string } | null>(null)
 
   // Welcome modal for demo — shows once per session
   const [showWelcome, setShowWelcome] = useState(false)
@@ -404,7 +406,31 @@ function DashboardContent() {
 
   // Mobile: show queue or chat full-screen based on tab
   const mobileContent = mobileTab === 'chat'
-    ? <div className="h-full">{gmChatNode}</div>
+    ? <div className="h-full">
+        {chatSession ? (
+          <div className="flex flex-col h-full">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 flex-shrink-0">
+              <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+                Session: {chatSession.agentName}
+              </p>
+              <button
+                onClick={() => setChatSession(null)}
+                className="text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <AgentChat
+                accountId={isDemo ? 'demo-gym' : (acct?.id ?? '')}
+                agentId={chatSession.agentId}
+                onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
+                onComplete={() => {}}
+              />
+            </div>
+          </div>
+        ) : gmChatNode}
+      </div>
     : reviewQueueNode
 
   const mainContent = (
@@ -584,6 +610,7 @@ function DashboardContent() {
                     if (data) setData({ ...data, agents: (data.agents ?? []).filter((a: any) => a.id !== agentId) })
                   }}
                   onAddAgent={() => { setEditingAgent(null); setActiveSection('agents') }}
+                  onChat={agent => setChatSession({ agentId: agent.id, agentName: agent.name })}
                 />
               </div>
               {/* Right col: Scheduled Runs + Quick Queue + Chat */}
@@ -597,7 +624,29 @@ function DashboardContent() {
                   />
                 </div>
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  {gmChatNode}
+                  {chatSession ? (
+                    <div className="flex flex-col h-full">
+                      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 flex-shrink-0">
+                        <p className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+                          Session: {chatSession.agentName}
+                        </p>
+                        <button
+                          onClick={() => setChatSession(null)}
+                          className="text-[10px] text-gray-400 hover:text-gray-700 transition-colors"
+                        >
+                          Close
+                        </button>
+                      </div>
+                      <div className="flex-1 min-h-0">
+                        <AgentChat
+                          accountId={isDemo ? 'demo-gym' : (acct?.id ?? '')}
+                          agentId={chatSession.agentId}
+                          onTaskCreated={() => { if (!isDemo) fetchDashboard() }}
+                          onComplete={() => {}}
+                        />
+                      </div>
+                    </div>
+                  ) : gmChatNode}
                 </div>
               </div>
             </div>

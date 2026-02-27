@@ -28,6 +28,7 @@ interface AgentRosterProps {
   onToggle?: (skillType: string, isActive: boolean) => void
   onDelete?: (agentId: string) => void
   onAddAgent?: () => void
+  onChat?: (agent: AgentWithStats) => void
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -53,12 +54,13 @@ function triggerLabel(agent: AgentWithStats): string {
 
 // ── Agent Row ─────────────────────────────────────────────────────────────────
 
-function AgentRow({ agent, isDemo, onSelect, onToggle, onDelete }: {
+function AgentRow({ agent, isDemo, onSelect, onToggle, onDelete, onChat }: {
   agent: AgentWithStats
   isDemo?: boolean
   onSelect?: (a: AgentWithStats) => void
   onToggle?: (skillType: string, isActive: boolean) => void
   onDelete?: (id: string) => void
+  onChat?: (a: AgentWithStats) => void
 }) {
   const [toggling, setToggling] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -151,6 +153,13 @@ function AgentRow({ agent, isDemo, onSelect, onToggle, onDelete }: {
       {!isDemo && (
         <div className="flex-shrink-0 flex items-center gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
+            onClick={() => onChat?.(agent)}
+            className="text-[10px] font-semibold px-1.5 py-0.5 transition-colors"
+            style={{ color: '#0063FF' }}
+          >
+            Chat
+          </button>
+          <button
             onClick={() => onSelect?.(agent)}
             className="text-[10px] text-gray-400 hover:text-gray-700 px-1.5 py-0.5 transition-colors"
           >
@@ -181,7 +190,7 @@ function AgentRow({ agent, isDemo, onSelect, onToggle, onDelete }: {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-export default function AgentRoster({ agents, isDemo, onSelect, onToggle, onDelete, onAddAgent }: AgentRosterProps) {
+export default function AgentRoster({ agents, isDemo, onSelect, onToggle, onDelete, onAddAgent, onChat }: AgentRosterProps) {
   const activeCount = agents.filter(a => a.is_active).length
 
   return (
@@ -235,6 +244,7 @@ export default function AgentRoster({ agents, isDemo, onSelect, onToggle, onDele
               onSelect={onSelect}
               onToggle={onToggle}
               onDelete={onDelete}
+              onChat={onChat}
             />
           ))}
         </div>
