@@ -525,7 +525,6 @@ function DashboardContent() {
           </div>
         ) : (
           <>
-            <RetentionScorecard />
             {hasAgents ? (
               <AgentPageLayout
                 agentName={primaryAgentName}
@@ -536,6 +535,7 @@ function DashboardContent() {
                 isRunning={running}
                 runLabel="Run scan"
                 executionMode={executionMode}
+                scorecardSlot={<RetentionScorecard />}
                 queueCount={uniqueActions.length}
                 queueSlot={reviewQueueNode}
                 feedSlot={<ActivityFeed />}
