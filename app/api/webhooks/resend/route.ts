@@ -143,6 +143,47 @@ async function handleEmailReceived(data: any): Promise<Record<string, any>> {
 
   console.log(`email.received: replyToken=${replyToken} from="${fromName}" <${fromEmail}> text="${cleanText.slice(0, 80)}"`)
 
+  // ── Check for waiting_event agent sessions linked to this reply_token ──
+  // If a session sent an email and called wait_for_reply, resume it now.
+  try {
+    const { data: linkedMsg } = await supabaseAdmin
+      .from('outbound_messages')
+      .select('session_id')
+      .eq('reply_token', replyToken)
+      .not('session_id', 'is', null)
+      .maybeSingle()
+
+    if (linkedMsg?.session_id) {
+      const { data: session } = await supabaseAdmin
+        .from('agent_sessions')
+        .select('id, status')
+        .eq('id', linkedMsg.session_id)
+        .eq('status', 'waiting_event')
+        .maybeSingle()
+
+      if (session) {
+        console.log(`email.received: resuming waiting_event session ${session.id} for reply_token=${replyToken}`)
+        const { resumeSession } = await import('@/lib/agents/session-runtime')
+        const events = resumeSession(session.id, {
+          replyContent: cleanText.trim(),
+          replyToken,
+        })
+        // Drain the generator to run the session to next pause point
+        for await (const _event of events) { /* consume */ }
+        return {
+          action: 'session_resumed',
+          sessionId: session.id,
+          replyToken,
+          from: fromEmail,
+        }
+      }
+    }
+  } catch (err: any) {
+    // Non-fatal — fall through to normal reply handling
+    console.warn('email.received: session resume check failed (non-fatal):', err?.message)
+  }
+
+  // ── Normal reply handling (task-based) ──
   try {
     const result = await handleInboundReply({
       replyToken,

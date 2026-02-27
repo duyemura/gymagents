@@ -22,6 +22,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
 import type { AccountSnapshot, AccountInsight } from '@/lib/agents/GMAgent'
 import { runAgentAnalysis } from '@/lib/agents/agent-runtime'
+import { runUnattendedSession } from '@/lib/agents/session-runtime'
 import { createInsightTask } from '@/lib/db/tasks'
 import { saveKPISnapshot, getMonthlyRetentionROI } from '@/lib/db/kpi'
 import { appendSystemEvent } from '@/lib/db/chat'
@@ -30,6 +31,7 @@ import type { ResearchSummaryData } from '@/lib/artifacts/types'
 import Anthropic from '@anthropic-ai/sdk'
 import { HAIKU } from '@/lib/models'
 import { buildAccountSnapshot } from '@/lib/pushpress-platform'
+import { harvestDataLenses } from '@/lib/data-lens'
 import { getAccountTimezone, getLocalHour, getLocalDayOfWeek } from '@/lib/timezone'
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -76,6 +78,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: accountsError.message }, { status: 500 })
   }
 
+  const useSessionRuntime = process.env.USE_SESSION_RUNTIME === 'true'
   const claude = { evaluate: makeClaudeEvaluate() }
   let accountsAnalyzed = 0
   let totalInsights = 0
@@ -104,6 +107,13 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       } catch (err) {
         console.error(`[run-agents] Connector fetch failed for account ${account.id}:`, err)
         continue
+      }
+
+      // Harvest data lens memories (segments snapshot into refreshable summaries)
+      try {
+        await harvestDataLenses(account.id, snapshot)
+      } catch (err) {
+        console.warn(`[run-agents] Data lens harvest failed for account ${account.id} (non-fatal):`, (err as Error).message)
       }
 
       // Fetch cron automations due now, joined with agent capability
@@ -149,6 +159,47 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
       for (const agent of agents) {
         try {
+          // ── Session runtime path (feature-flagged) ──────────────────────
+          if (useSessionRuntime) {
+            const session = await runUnattendedSession({
+              accountId: account.id,
+              goal: `Analyze all members and identify those needing attention. Create tasks for anyone who needs outreach. You are the "${agent.name ?? agent.skill_type}" agent.`,
+              agentId: agent.id,
+              tools: ['data', 'action', 'learning'],
+              autonomyMode: 'full_auto',
+              maxTurns: 15,
+              createdBy: 'cron',
+              apiKey: apiKey,
+              companyId: account.pushpress_company_id ?? '',
+              systemPromptOverride: agent.system_prompt,
+              skillType: agent.skill_type,
+            })
+
+            const sessionOutputs = (session.outputs ?? []) as any[]
+            const tasksCreated = sessionOutputs.filter((o: any) => o.type === 'task_created').length
+            agentResults.push({ agentId: agent.id, name: agent.name ?? agent.skill_type, count: tasksCreated })
+            totalTasksCreated += tasksCreated
+
+            // Record agent run
+            await supabaseAdmin
+              .from('agent_runs')
+              .insert({
+                account_id: account.id,
+                agent_id: agent.id,
+                agent_type: agent.skill_type,
+                automation_id: agent.automationId ?? null,
+                trigger_source: 'cron',
+                trigger_ref: agent.automationId ? 'scheduled' : null,
+                status: 'completed',
+                input_summary: `Session: ${tasksCreated} tasks created (session ${session.id})`,
+                output: { sessionId: session.id, tasksCreated, turns: session.turnCount, costCents: session.costCents },
+              })
+
+            console.log(`[run-agents] session agent=${agent.name ?? agent.skill_type} tasks=${tasksCreated} turns=${session.turnCount} cost=${session.costCents}c`)
+            continue
+          }
+
+          // ── Legacy single-call path ─────────────────────────────────────
           const result = await runAgentAnalysis(
             {
               skillType: agent.skill_type,
