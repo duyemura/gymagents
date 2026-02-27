@@ -466,6 +466,101 @@ export function buildMemberData(
   }
 }
 
+// ── V3 customer fetch ─────────────────────────────────────────────────────────
+
+/**
+ * Map a v3 customer role/status to PPCustomerRole.
+ * V3 has flat `role` and `status` fields; Platform v1 has typed `role`.
+ */
+export function mapV3RoleToPP(customer: any): PPCustomerRole {
+  const role = customer.role || customer.customer_role || ''
+  const status = customer.status || ''
+
+  if (role === 'lead' || status === 'lead') return 'lead'
+  if (role === 'ex-member' || status === 'cancelled' || status === 'canceled') return 'ex-member'
+  if (role === 'non-member') return 'non-member'
+  if (role === 'admin') return 'admin'
+  if (role === 'coach') return 'coach'
+  if (role === 'frontdesk') return 'frontdesk'
+  if (role === 'superuser') return 'superuser'
+  return 'member'
+}
+
+/**
+ * Map a v3 customer object (flat fields) to the PPCustomer shape (nested name).
+ */
+export function mapV3ToPPCustomer(c: any): PPCustomer {
+  return {
+    id: c.id,
+    companyId: c.companyId || c.company_id || '',
+    name: {
+      first: c.first_name || c.firstName || '',
+      last: c.last_name || c.lastName || '',
+      nickname: c.nickname || null,
+    },
+    gender: c.gender || null,
+    dob: c.dob || c.date_of_birth || null,
+    address: {
+      line1: c.address?.line1 || c.address?.street || '',
+      line2: c.address?.line2 || '',
+      city: c.address?.city || '',
+      country: c.address?.country || '',
+      state: c.address?.state || '',
+      zip: c.address?.zip || c.address?.postalCode || '',
+    },
+    account: { type: 'primary' },
+    membershipDetails: {
+      initialMembershipStartDate:
+        c.memberSince || c.member_since || c.joinDate || c.join_date ||
+        c.startDate || c.start_date || c.created_at || c.createdAt ||
+        c.date_added || c.dateAdded || null,
+    },
+    email: c.email || '',
+    phone: c.phone || c.phone_number || null,
+    role: mapV3RoleToPP(c),
+  }
+}
+
+/**
+ * Fetch all customers from the PushPress v3 API (paginated).
+ * Platform v1 doesn't have a /customers endpoint — v3 does.
+ * Maps v3's flat customer shape to the PPCustomer type for downstream compat.
+ */
+export async function fetchCustomersV3(
+  apiKey: string,
+  companyId?: string,
+): Promise<PPCustomer[]> {
+  const MAX_PAGES = 5
+  const all: PPCustomer[] = []
+  let page = 1
+
+  while (page <= MAX_PAGES) {
+    const url = `${PP_V3_BASE}/customers?limit=100&page=${page}`
+    const res = await fetch(url, {
+      headers: ppApiHeaders(apiKey, companyId),
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`PushPress v3 API ${res.status} /customers: ${text}`)
+    }
+
+    const body = await res.json()
+    const batch: any[] =
+      body?.data?.resultArray ??
+      body?.data ??
+      body?.resultArray ??
+      (Array.isArray(body) ? body : [])
+
+    if (!Array.isArray(batch) || batch.length === 0) break
+    all.push(...batch.map(mapV3ToPPCustomer))
+    if (batch.length < 100) break
+    page++
+  }
+
+  return all
+}
+
 // ── buildAccountSnapshot ─────────────────────────────────────────────────────
 
 /**
@@ -476,10 +571,10 @@ export function buildMemberData(
  * in the connector layer — the cron route just calls this and gets back an
  * abstract AccountSnapshot that any analysis pipeline can consume.
  *
- * Uses Platform API v1 endpoints:
- *   GET /customers   → PPCustomer[]
- *   GET /checkins    → PPCheckin[]   (60-day window)
- *   GET /enrollments → PPEnrollment[]
+ * Data sources:
+ *   GET /customers   → v3 API (Platform v1 doesn't have this endpoint)
+ *   GET /checkins    → Platform v1 (60-day window)
+ *   GET /enrollments → Platform v1
  */
 export async function buildAccountSnapshot(
   accountId: string,
@@ -491,18 +586,30 @@ export async function buildAccountSnapshot(
   const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
   const sixtyDaysAgoMs  = now.getTime() - 60 * 24 * 60 * 60 * 1000
 
-  // Fetch customers, enrollments, and checkins (60-day window) in parallel
+  // Fetch customers from v3 API (Platform v1 doesn't have /customers)
+  // Fetch enrollments + checkins from Platform v1 (graceful fallback if unavailable)
   const sixtyDaysAgoSec = Math.floor(sixtyDaysAgoMs / 1000)
   const nowSec = Math.floor(now.getTime() / 1000)
 
-  const [customers, enrollments, checkins] = await Promise.all([
-    ppGet<PPCustomer>(apiKey, '/customers', {}, companyId),
-    ppGet<PPEnrollment>(apiKey, '/enrollments', {}, companyId),
-    ppGet<PPCheckin>(apiKey, '/checkins', {
-      startTimestamp: String(sixtyDaysAgoSec),
-      endTimestamp: String(nowSec),
-    }, companyId),
-  ])
+  // Customers are essential — if this fails, the whole snapshot fails
+  const customers = await fetchCustomersV3(apiKey, companyId)
+
+  // Enrollments + checkins are enrichment — degrade gracefully if Platform v1 is unavailable
+  let enrollments: PPEnrollment[] = []
+  let checkins: PPCheckin[] = []
+
+  try {
+    ;[enrollments, checkins] = await Promise.all([
+      ppGet<PPEnrollment>(apiKey, '/enrollments', {}, companyId),
+      ppGet<PPCheckin>(apiKey, '/checkins', {
+        startTimestamp: String(sixtyDaysAgoSec),
+        endTimestamp: String(nowSec),
+      }, companyId),
+    ])
+  } catch (err: any) {
+    console.warn(`[buildAccountSnapshot] Platform v1 enrichment failed (non-fatal): ${err.message}`)
+    // Continue with customers only — members will have status from role, no checkin/enrollment data
+  }
 
   // Index: customerId → most recent active enrollment
   // PushPress enrollment status priority — prefer active enrollments over cancelled

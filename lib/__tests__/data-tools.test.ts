@@ -9,8 +9,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // ── Mocks ───────────────────────────────────────────────────────────────
 
 const mockPpGet = vi.fn()
+const mockFetchCustomersV3 = vi.fn()
 vi.mock('../pushpress-platform', () => ({
   ppGet: (...args: unknown[]) => mockPpGet(...args),
+  fetchCustomersV3: (...args: unknown[]) => mockFetchCustomersV3(...args),
   buildMemberData: vi.fn((customer, enrollment, checkins, now, revenue) => ({
     id: customer.id,
     name: `${customer.name.first} ${customer.name.last}`.trim(),
@@ -95,11 +97,11 @@ describe('data tools', () => {
     it('returns filtered members with compact summary', async () => {
       const tool = findTool('get_members')
 
+      mockFetchCustomersV3.mockResolvedValueOnce([
+        { id: 'm1', uuid: 'm1', name: { first: 'Sarah', last: 'J' }, email: 'sarah@test.com', role: 'member' },
+        { id: 'm2', uuid: 'm2', name: { first: 'Mike', last: 'T' }, email: 'mike@test.com', role: 'member' },
+      ])
       mockPpGet
-        .mockResolvedValueOnce([
-          { id: 'm1', uuid: 'm1', name: { first: 'Sarah', last: 'J' }, email: 'sarah@test.com', role: 'member' },
-          { id: 'm2', uuid: 'm2', name: { first: 'Mike', last: 'T' }, email: 'mike@test.com', role: 'member' },
-        ])
         .mockResolvedValueOnce([]) // enrollments
         .mockResolvedValueOnce([]) // checkins
 
@@ -113,11 +115,11 @@ describe('data tools', () => {
     it('excludes already-processed members', async () => {
       const tool = findTool('get_members')
 
+      mockFetchCustomersV3.mockResolvedValueOnce([
+        { id: 'm1', uuid: 'm1', name: { first: 'Sarah', last: 'J' }, email: 'sarah@test.com' },
+        { id: 'm2', uuid: 'm2', name: { first: 'Mike', last: 'T' }, email: 'mike@test.com' },
+      ])
       mockPpGet
-        .mockResolvedValueOnce([
-          { id: 'm1', uuid: 'm1', name: { first: 'Sarah', last: 'J' }, email: 'sarah@test.com' },
-          { id: 'm2', uuid: 'm2', name: { first: 'Mike', last: 'T' }, email: 'mike@test.com' },
-        ])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
 
@@ -129,7 +131,7 @@ describe('data tools', () => {
 
     it('handles PushPress API errors gracefully', async () => {
       const tool = findTool('get_members')
-      mockPpGet.mockRejectedValueOnce(new Error('API down'))
+      mockFetchCustomersV3.mockRejectedValueOnce(new Error('API down'))
 
       const result = await tool.execute({}, makeCtx()) as any
       expect(result.error).toContain('Failed to fetch members')
@@ -145,9 +147,10 @@ describe('data tools', () => {
     it('returns member profile when found', async () => {
       const tool = findTool('get_member_detail')
 
-      mockPpGet
-        .mockResolvedValueOnce([{ id: 'm1', uuid: 'm1', name: { first: 'Sarah', last: 'J' }, email: 'sarah@test.com' }])
-        .mockResolvedValueOnce([]) // checkins
+      mockFetchCustomersV3.mockResolvedValueOnce([
+        { id: 'm1', uuid: 'm1', name: { first: 'Sarah', last: 'J' }, email: 'sarah@test.com' },
+      ])
+      mockPpGet.mockResolvedValueOnce([]) // checkins
 
       mockSupabaseFrom.mockReturnValue(chainable({ data: [], error: null }))
 
@@ -158,7 +161,7 @@ describe('data tools', () => {
 
     it('handles not found', async () => {
       const tool = findTool('get_member_detail')
-      mockPpGet.mockResolvedValueOnce([])
+      mockFetchCustomersV3.mockResolvedValueOnce([])
 
       const result = await tool.execute({ member_id: 'missing' }, makeCtx()) as any
       expect(result.error).toContain('not found')

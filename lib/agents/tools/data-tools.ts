@@ -6,7 +6,7 @@
  */
 
 import type { AgentTool, ToolGroup, ToolContext } from './types'
-import { ppGet, buildMemberData } from '../../pushpress-platform'
+import { ppGet, buildMemberData, fetchCustomersV3 } from '../../pushpress-platform'
 import { getOpenTasksForGym } from '../../db/tasks'
 import { getAccountMemories } from '../../db/memories'
 import { supabaseAdmin } from '../../supabase'
@@ -96,8 +96,19 @@ const getMembers: AgentTool = {
     const now = new Date()
 
     try {
-      // Fetch customers from PushPress
-      const customers = await ppGet<PPCustomerV3>(ctx.apiKey, '/customers', {}, ctx.companyId)
+      // Fetch customers from PushPress v3 API (Platform v1 doesn't have /customers)
+      const customersRaw = await fetchCustomersV3(ctx.apiKey, ctx.companyId)
+      const customers: PPCustomerV3[] = customersRaw.map(c => ({
+        id: (c as any).id ?? (c as any).uuid ?? '',
+        uuid: (c as any).uuid ?? (c as any).id ?? '',
+        name: (c as any).name,
+        first_name: (c as any).first_name ?? (c as any).name?.first,
+        last_name: (c as any).last_name ?? (c as any).name?.last,
+        email: (c as any).email ?? '',
+        phone: (c as any).phone,
+        role: (c as any).role,
+        created_at: (c as any).created_at,
+      }))
 
       // Fetch enrollments and checkins
       const thirtyDaysAgo = new Date(now.getTime() - 30 * 86_400_000)
@@ -234,11 +245,11 @@ const getMemberDetail: AgentTool = {
     const memberId = input.member_id as string
 
     try {
-      // Fetch customer detail
-      const customers = await ppGet<PPCustomerV3>(
-        ctx.apiKey, `/customers/${memberId}`, {}, ctx.companyId,
-      )
-      const customer = Array.isArray(customers) ? customers[0] : customers
+      // Fetch customer detail from v3 API (Platform v1 doesn't have /customers)
+      const allCustomers = await fetchCustomersV3(ctx.apiKey, ctx.companyId)
+      const customer = allCustomers.find(
+        (c: any) => c.id === memberId || c.uuid === memberId
+      ) as PPCustomerV3 | undefined
 
       if (!customer) return { error: `Member ${memberId} not found` }
 
