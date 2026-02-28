@@ -1,16 +1,15 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
-// Helper: get gym for current session
+// Helper: get account id for current session
 async function getGymId(session: any): Promise<string | null> {
   if ((session as any).isDemo) return null
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
-  return gym?.id ?? null
+  const account = await getAccountForUser(session.id)
+  return (account?.id as string) ?? null
 }
 
 // GET /api/skills/[id] — fetch a single skill
@@ -21,7 +20,7 @@ export async function GET(
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const gymId = await getGymId(session)
+  const accountId = await getGymId(session)
 
   const { data: skill, error } = await supabaseAdmin
     .from('skills')
@@ -32,7 +31,7 @@ export async function GET(
   if (error || !skill) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Must be a system skill or belong to this gym
-  if (skill.gym_id !== null && skill.gym_id !== gymId) {
+  if (skill.gym_id !== null && skill.gym_id !== accountId) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -48,8 +47,8 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((session as any).isDemo) return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
 
-  const gymId = await getGymId(session)
-  if (!gymId) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  const accountId = await getGymId(session)
+  if (!accountId) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 
   // Verify the skill belongs to this gym (not a system skill)
   const { data: existing } = await supabaseAdmin
@@ -62,7 +61,7 @@ export async function PATCH(
   if (existing.is_system && existing.gym_id === null) {
     return NextResponse.json({ error: 'Cannot edit system skills — clone first' }, { status: 403 })
   }
-  if (existing.gym_id !== gymId) {
+  if (existing.gym_id !== accountId) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -94,8 +93,8 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if ((session as any).isDemo) return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
 
-  const gymId = await getGymId(session)
-  if (!gymId) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  const accountId = await getGymId(session)
+  if (!accountId) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 
   const { data: existing } = await supabaseAdmin
     .from('skills')
@@ -107,7 +106,7 @@ export async function DELETE(
   if (existing.is_system && existing.gym_id === null) {
     return NextResponse.json({ error: 'Cannot delete system skills' }, { status: 403 })
   }
-  if (existing.gym_id !== gymId) {
+  if (existing.gym_id !== accountId) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 

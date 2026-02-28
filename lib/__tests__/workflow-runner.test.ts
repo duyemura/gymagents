@@ -22,21 +22,21 @@ import { createClient } from '@supabase/supabase-js'
 const makeRun = (overrides = {}): any => ({
   id: 'run-uuid-1',
   workflow_id: 'wf-uuid-1',
-  gym_id: 'gym-test',
+  account_id: 'gym-test',
   member_id: 'member-1',
   member_email: 'alex@example.com',
   member_name: 'Alex',
   status: 'active',
   current_step: 'step_1',
   goal: 'Get the member back through the door',
-  context: { gymName: 'Iron & Grit CrossFit', history: [] },
+  context: { accountName: 'Iron & Grit CrossFit', history: [] },
   started_at: new Date().toISOString(),
   ...overrides,
 })
 
 const makeWorkflow = (steps: any[]): any => ({
   id: 'wf-uuid-1',
-  gym_id: null,
+  account_id: null,
   name: 'Test Workflow',
   goal: 'Test goal',
   timeout_days: 30,

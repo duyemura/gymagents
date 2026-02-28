@@ -9,7 +9,7 @@ export interface SessionUser {
   email: string
   // Demo session fields
   userId?: string
-  gymName?: string
+  accountName?: string
   companyId?: string
   apiKey?: string
   isDemo?: boolean
@@ -43,14 +43,11 @@ export async function getUserWithGym(userId: string) {
     .select('*')
     .eq('id', userId)
     .single()
-  
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-  
-  return { user, gym }
+
+  const { getAccountForUser } = await import('./db/accounts')
+  const account = await getAccountForUser(userId)
+
+  return { user, account }
 }
 
 export function isSubscribed(user: any): boolean {

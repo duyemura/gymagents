@@ -1,6 +1,9 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 // POST /api/skills/[id]/clone — clone a system skill into this gym's library
 export async function POST(
@@ -12,13 +15,9 @@ export async function POST(
   if ((session as any).isDemo) return NextResponse.json({ error: 'Not available in demo' }, { status: 403 })
 
   // Get the gym
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
-  if (!gym) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 
   // Fetch the source skill (must be a system skill or accessible)
   const { data: source, error: fetchErr } = await supabaseAdmin
@@ -33,7 +32,7 @@ export async function POST(
   const { data: existing } = await supabaseAdmin
     .from('skills')
     .select('id')
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .eq('slug', source.slug)
     .single()
 
@@ -45,7 +44,7 @@ export async function POST(
   const { data: clone, error: insertErr } = await supabaseAdmin
     .from('skills')
     .insert({
-      gym_id: gym.id,
+      account_id: account.id,
       slug: source.slug,
       name: source.name,
       description: source.description,

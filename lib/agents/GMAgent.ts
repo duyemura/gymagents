@@ -14,9 +14,16 @@
  */
 
 import { BaseAgent } from './BaseAgent'
+import {
+  buildDraftingPrompt,
+  loadAllSkillSummaries,
+  selectRelevantSkills,
+  buildMultiSkillPrompt,
+} from '../skill-loader'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// Known insight types — AI can also assign new types beyond this list
 export type InsightType =
   | 'churn_risk'            // member attendance dropping
   | 'renewal_at_risk'       // renewal coming + attendance dropping
@@ -25,6 +32,7 @@ export type InsightType =
   | 'no_show'               // missed scheduled appointment
   | 'new_member_onboarding' // new member, check if settling in
   | 'win_back'              // cancelled member worth targeting
+  | (string & {})           // AI can assign any type — this preserves autocomplete for known types
 
 export interface MemberData {
   id: string
@@ -76,9 +84,9 @@ export interface PaymentEvent {
   recoveredAt?: string
 }
 
-export interface GymSnapshot {
-  gymId: string
-  gymName?: string         // optional gym display name
+export interface AccountSnapshot {
+  accountId: string
+  accountName?: string         // optional gym display name
   members: MemberData[]
   recentCheckins: CheckinData[]
   recentLeads: LeadData[]
@@ -86,7 +94,7 @@ export interface GymSnapshot {
   capturedAt: string
 }
 
-export interface GymInsight {
+export interface AccountInsight {
   type: InsightType
   priority: 'critical' | 'high' | 'medium' | 'low'
   memberId?: string
@@ -106,15 +114,15 @@ export interface ChurnRiskScore {
 }
 
 export interface AnalysisResult {
-  gymId: string
+  accountId: string
   insightsFound: number
   tasksCreated: number
-  insights: GymInsight[]
+  insights: AccountInsight[]
 }
 
-export interface GymContext {
-  gymId: string
-  gymName: string
+export interface AccountContext {
+  accountId: string
+  accountName: string
   ownerName?: string
 }
 
@@ -124,8 +132,8 @@ export interface PushPressEvent {
 }
 
 export interface CreateInsightTaskParams {
-  gymId: string
-  insight: GymInsight
+  accountId: string
+  insight: AccountInsight
   causationEventId?: string
 }
 
@@ -243,8 +251,8 @@ export class GMAgent extends BaseAgent {
    * Generate a prioritized list of insights from gym data.
    * This is the core analytical method — pure, no side effects.
    */
-  analyzeGym(snapshot: GymSnapshot): GymInsight[] {
-    const insights: GymInsight[] = []
+  analyzeGym(snapshot: AccountSnapshot): AccountInsight[] {
+    const insights: AccountInsight[] = []
     const now = new Date()
 
     // --- Churn risk from member attendance ---
@@ -310,21 +318,172 @@ export class GMAgent extends BaseAgent {
     return insights
   }
 
+  // ── analyzeGymAI ───────────────────────────────────────────────────────────
+
+  /**
+   * AI-driven analysis: sends member data + skill context to Claude,
+   * which reasons about who needs attention and why.
+   *
+   * Returns AccountInsight[] — same shape as analyzeGym() for compatibility.
+   * Uses Haiku for cost efficiency (~$0.02 per 100 members).
+   */
+  async analyzeGymAI(snapshot: AccountSnapshot, accountId: string): Promise<AccountInsight[]> {
+    // Build member summaries for the prompt (compact but informative)
+    const now = new Date()
+    const memberSummaries = snapshot.members
+      .filter(m => m.status === 'active' || m.status === 'paused')
+      .map(m => {
+        const daysSince = m.lastCheckinAt
+          ? Math.floor((now.getTime() - new Date(m.lastCheckinAt).getTime()) / (1000 * 60 * 60 * 24))
+          : null
+        return {
+          id: m.id,
+          name: m.name,
+          email: m.email,
+          status: m.status,
+          memberSince: m.memberSince,
+          monthlyRevenue: m.monthlyRevenue,
+          daysSinceLastVisit: daysSince,
+          recentCheckins30d: m.recentCheckinsCount,
+          previousCheckins30d: m.previousCheckinsCount,
+          renewalDate: m.renewalDate ?? null,
+          membershipType: m.membershipType,
+        }
+      })
+
+    // Include payment events
+    const paymentIssues = snapshot.paymentEvents
+      .filter(p => p.eventType === 'payment_failed')
+      .map(p => ({
+        memberId: p.memberId,
+        memberName: p.memberName,
+        memberEmail: p.memberEmail,
+        amount: p.amount,
+        failedAt: p.failedAt,
+      }))
+
+    // Load skill summaries for context
+    let skillSummaries = ''
+    try {
+      skillSummaries = await loadAllSkillSummaries()
+    } catch {
+      // Non-fatal
+    }
+
+    const system = `You are an AI General Manager analyzing a business's client data. Your job is to identify clients who need attention: people at risk of disengaging, payment issues, or any situation where proactive outreach would help retain them.
+
+## Available approaches (you can also describe new situations if none fit):
+${skillSummaries}
+
+## Rules:
+- Only flag people who genuinely need attention. Don't create noise
+- Consider each person's full context: visit frequency, tenure, revenue, trends
+- What counts as "normal" varies by business. Reason about what's typical for THIS business based on the data patterns you see
+- Payment failures are always critical
+- New clients (< 30 days) with no visits need onboarding attention
+- Don't flag people who visited in the last 3 days (they're active)
+- Sort by priority: critical > high > medium
+
+## Output
+Respond with ONLY valid JSON (no markdown fences):
+{
+  "insights": [
+    {
+      "type": "a short snake_case label describing the situation (e.g. churn_risk, win_back, payment_failed, attendance_drop, new_member_onboarding, or any label that fits)",
+      "priority": "critical | high | medium | low",
+      "memberId": "the person's id",
+      "memberName": "the person's name",
+      "memberEmail": "the person's email",
+      "title": "short human-readable title (e.g. 'Sarah hasn\\'t visited in 12 days')",
+      "detail": "2-3 sentence explanation of why this needs attention",
+      "recommendedAction": "what the business should do",
+      "estimatedImpact": "revenue or engagement at risk (e.g. '$150/mo at risk')"
+    }
+  ]
+}`
+
+    const prompt = `Business: ${snapshot.accountName ?? 'Business'} (${memberSummaries.length} active/paused clients)
+Snapshot captured: ${snapshot.capturedAt}
+
+## Clients:
+${JSON.stringify(memberSummaries, null, 2)}
+
+${paymentIssues.length > 0 ? `## Payment Issues:\n${JSON.stringify(paymentIssues, null, 2)}` : ''}
+
+Analyze these clients and return the ones who need attention.`
+
+    try {
+      const response = await this.deps.claude.evaluate(system, prompt)
+
+      // Parse AI response
+      const jsonMatch = response.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) {
+        console.warn('[GMAgent] analyzeGymAI: no JSON in response, falling back to formula')
+        return this.analyzeGym(snapshot)
+      }
+
+      const parsed = JSON.parse(jsonMatch[0])
+      const aiInsights: AccountInsight[] = (parsed.insights ?? []).map((i: any) => ({
+        type: (i.type || 'churn_risk') as InsightType,
+        priority: (['critical', 'high', 'medium', 'low'].includes(i.priority) ? i.priority : 'medium') as AccountInsight['priority'],
+        memberId: i.memberId,
+        memberName: i.memberName,
+        memberEmail: i.memberEmail,
+        title: i.title ?? `${i.memberName} needs attention`,
+        detail: i.detail ?? '',
+        recommendedAction: i.recommendedAction ?? 'Review and reach out',
+        estimatedImpact: i.estimatedImpact ?? '',
+      }))
+
+      // Validate: run formula as sanity check
+      const formulaInsights = this.analyzeGym(snapshot)
+      const formulaCritical = formulaInsights.filter(i => i.priority === 'critical')
+      const aiCriticalIds = new Set(aiInsights.filter(i => i.priority === 'critical').map(i => i.memberId))
+
+      // If formula found critical members that AI missed, merge them in
+      for (const missed of formulaCritical) {
+        if (missed.memberId && !aiCriticalIds.has(missed.memberId)) {
+          const aiHasMember = aiInsights.some(i => i.memberId === missed.memberId)
+          if (!aiHasMember) {
+            console.warn(`[GMAgent] AI missed critical member ${missed.memberName} — adding from formula`)
+            aiInsights.push(missed)
+          }
+        }
+      }
+
+      // Sort by priority
+      aiInsights.sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 3) - (PRIORITY_ORDER[b.priority] ?? 3))
+
+      return aiInsights
+    } catch (err) {
+      console.error('[GMAgent] analyzeGymAI failed, falling back to formula:', err)
+      return this.analyzeGym(snapshot)
+    }
+  }
+
   // ── runAnalysis ─────────────────────────────────────────────────────────────
 
   /**
    * Main analysis run — called by cron or on-demand.
-   * Fetches data, runs analysis, creates agent_tasks for insights found.
+   *
+   * Uses AI-driven analysis by default. Falls back to formula-based analysis
+   * if Claude call fails. Pass opts.useFormula to force formula mode (for tests).
    */
-  async runAnalysis(gymId: string, data: GymSnapshot): Promise<AnalysisResult> {
-    const insights = this.analyzeGym(data)
+  async runAnalysis(
+    accountId: string,
+    data: AccountSnapshot,
+    opts?: { useFormula?: boolean },
+  ): Promise<AnalysisResult> {
+    const insights = opts?.useFormula
+      ? this.analyzeGym(data)
+      : await this.analyzeGymAI(data, accountId)
 
     let tasksCreated = 0
 
     for (const insight of insights) {
       try {
         if (this._createInsightTask) {
-          await this._createInsightTask({ gymId, insight })
+          await this._createInsightTask({ accountId, insight })
           tasksCreated++
         }
       } catch (err) {
@@ -333,7 +492,7 @@ export class GMAgent extends BaseAgent {
     }
 
     return {
-      gymId,
+      accountId,
       insightsFound: insights.length,
       tasksCreated,
       insights,
@@ -346,11 +505,11 @@ export class GMAgent extends BaseAgent {
    * Handle a PushPress webhook event.
    * Reacts immediately to important events (cancellation, no-show, etc.)
    */
-  async handleEvent(gymId: string, event: PushPressEvent): Promise<void> {
+  async handleEvent(accountId: string, event: PushPressEvent): Promise<void> {
     try {
       switch (event.type) {
         case 'customer.status.changed': {
-          await this._handleStatusChanged(gymId, event)
+          await this._handleStatusChanged(accountId, event)
           break
         }
         case 'checkin.created': {
@@ -360,7 +519,7 @@ export class GMAgent extends BaseAgent {
         }
         case 'appointment.noshowed':
         case 'reservation.noshowed': {
-          await this._handleNoShow(gymId, event)
+          await this._handleNoShow(accountId, event)
           break
         }
         default:
@@ -376,15 +535,34 @@ export class GMAgent extends BaseAgent {
 
   /**
    * Draft a coach-voice message for a given insight.
-   * Uses deps.claude to generate the draft.
+   * Loads the appropriate task-skill for the insight type, then calls Claude.
    */
-  async draftMessage(insight: GymInsight, gymContext: GymContext): Promise<string> {
-    const system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice — not salesy or corporate. The message should feel like it's coming from a real person who knows the member.
+  async draftMessage(insight: AccountInsight, gymContext: AccountContext): Promise<string> {
+    // Load skill-aware drafting prompt — try direct type mapping first,
+    // then semantic matching for AI-assigned types
+    let system: string
+    try {
+      system = await buildDraftingPrompt(insight.type, { accountId: gymContext.accountId })
+    } catch {
+      // Try semantic selection based on the insight's description
+      try {
+        const description = `${insight.type} ${insight.title} ${insight.detail}`
+        const skills = await selectRelevantSkills(description, { taskType: insight.type })
+        if (skills.length > 0) {
+          system = await buildMultiSkillPrompt(skills)
+        } else {
+          throw new Error('no skills matched')
+        }
+      } catch {
+        // Final fallback
+        system = `You are a message drafting assistant for a gym owner. Write in a warm, personal, coach voice, not salesy or corporate. Keep messages short (2-4 sentences). No emojis. Use first names. NEVER use emdashes.
 
-Keep messages short (2-4 sentences). Don't use emojis unless very natural. Use first names. Be direct but caring.`
+Return ONLY the message text, no subject line, no explanation, just the message.`
+      }
+    }
 
     const insightContext = [
-      `Gym: ${gymContext.gymName}`,
+      `Gym: ${gymContext.accountName}`,
       gymContext.ownerName ? `Owner: ${gymContext.ownerName}` : '',
       `Situation: ${insight.title}`,
       `Details: ${insight.detail}`,
@@ -394,8 +572,7 @@ Keep messages short (2-4 sentences). Don't use emojis unless very natural. Use f
 
     const prompt = `${insightContext}
 
-Write a short, personal message the gym owner can send to ${insight.memberName ?? 'the member'}. 
-Return ONLY the message text — no subject line, no explanation, just the message.`
+Write a short, personal message the gym owner can send to ${insight.memberName ?? 'the member'}.`
 
     const draft = await this.deps.claude.evaluate(system, prompt)
     return draft.trim()
@@ -403,7 +580,7 @@ Return ONLY the message text — no subject line, no explanation, just the messa
 
   // ── Private helpers ───────────────────────────────────────────────────────────
 
-  private async _handleStatusChanged(gymId: string, event: PushPressEvent): Promise<void> {
+  private async _handleStatusChanged(accountId: string, event: PushPressEvent): Promise<void> {
     const data = event.data as {
       customerId?: string
       customerName?: string
@@ -411,6 +588,9 @@ Return ONLY the message text — no subject line, no explanation, just the messa
       newStatus?: string
       previousStatus?: string
       monthlyRevenue?: number
+      memberSince?: string
+      lastCheckinAt?: string
+      totalCheckins?: number
     }
 
     const newStatus = data.newStatus ?? ''
@@ -419,41 +599,47 @@ Return ONLY the message text — no subject line, no explanation, just the messa
     const monthlyRevenue = data.monthlyRevenue ?? 0
 
     if (newStatus === 'cancelled') {
-      const insight: GymInsight = {
+      // Calculate tenure for richer context
+      const tenure = data.memberSince
+        ? Math.floor((Date.now() - new Date(data.memberSince).getTime()) / (30 * 24 * 60 * 60 * 1000))
+        : null
+      const tenureStr = tenure !== null ? `${tenure} month${tenure !== 1 ? 's' : ''}` : 'unknown tenure'
+
+      const insight: AccountInsight = {
         type: 'win_back',
         priority: 'high',
         memberId: data.customerId,
         memberName,
         memberEmail,
         title: `${memberName} just cancelled their membership`,
-        detail: `${memberName} cancelled. They were paying $${monthlyRevenue}/mo. A timely personal message can win them back.`,
-        recommendedAction: 'Send a personal win-back message within 24 hours',
-        estimatedImpact: monthlyRevenue > 0 ? `$${monthlyRevenue}/mo recoverable` : 'Revenue at risk',
+        detail: `${memberName} cancelled after ${tenureStr}. They were paying $${monthlyRevenue}/mo.${data.lastCheckinAt ? ` Last visit: ${new Date(data.lastCheckinAt).toLocaleDateString()}.` : ''} A timely personal message can win them back.`,
+        recommendedAction: 'Send a personal win-back message within 2 hours',
+        estimatedImpact: monthlyRevenue > 0 ? `$${monthlyRevenue * 3}/recovery value (3 months)` : 'Revenue at risk',
       }
 
       if (this._createInsightTask) {
-        await this._createInsightTask({ gymId, insight })
+        await this._createInsightTask({ accountId, insight })
       }
     } else if (newStatus === 'paused') {
-      const insight: GymInsight = {
+      const insight: AccountInsight = {
         type: 'churn_risk',
         priority: 'medium',
         memberId: data.customerId,
         memberName,
         memberEmail,
         title: `${memberName} paused their membership`,
-        detail: `${memberName} paused. Pauses often precede full cancellation — a check-in can prevent churn.`,
+        detail: `${memberName} paused. Pauses often precede full cancellation, a check-in can prevent churn.`,
         recommendedAction: 'Check in to understand the reason for pause',
         estimatedImpact: monthlyRevenue > 0 ? `$${monthlyRevenue}/mo at risk` : 'Revenue at risk',
       }
 
       if (this._createInsightTask) {
-        await this._createInsightTask({ gymId, insight })
+        await this._createInsightTask({ accountId, insight })
       }
     }
   }
 
-  private async _handleNoShow(gymId: string, event: PushPressEvent): Promise<void> {
+  private async _handleNoShow(accountId: string, event: PushPressEvent): Promise<void> {
     const data = event.data as {
       customerId?: string
       customerName?: string
@@ -463,7 +649,7 @@ Return ONLY the message text — no subject line, no explanation, just the messa
 
     const memberName = data.customerName ?? 'Member'
 
-    const insight: GymInsight = {
+    const insight: AccountInsight = {
       type: 'no_show',
       priority: 'medium',
       memberId: data.customerId,
@@ -476,7 +662,7 @@ Return ONLY the message text — no subject line, no explanation, just the messa
     }
 
     if (this._createInsightTask) {
-      await this._createInsightTask({ gymId, insight })
+      await this._createInsightTask({ accountId, insight })
     }
   }
 }

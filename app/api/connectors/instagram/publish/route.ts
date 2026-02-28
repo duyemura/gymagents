@@ -1,7 +1,10 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -14,19 +17,15 @@ export async function POST(req: NextRequest) {
   }
 
   // Look up the gym
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
-  if (!gym) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
+  if (!account) return NextResponse.json({ error: 'Gym not found' }, { status: 404 })
 
   // Fetch Instagram credentials
   const { data: record } = await supabaseAdmin
     .from('gym_instagram')
     .select('access_token, instagram_business_account_id')
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .single()
 
   if (!record) {

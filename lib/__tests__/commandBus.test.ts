@@ -20,7 +20,7 @@ import type { AgentCommand, CommandBusDeps, CommandExecutor, CommandType } from 
 
 const makeCommand = (overrides: Partial<AgentCommand> = {}): AgentCommand => ({
   id: 'cmd-001',
-  gymId: 'gym-001',
+  accountId: 'gym-001',
   commandType: 'SendEmail',
   payload: { recipientEmail: 'dan@example.com' },
   issuedByAgent: 'retention',
@@ -72,7 +72,7 @@ describe('CommandBus.issue()', () => {
     const bus = new CommandBus(deps)
 
     await bus.issue('SendEmail', { recipientEmail: 'dan@example.com' }, {
-      gymId: 'gym-001',
+      accountId: 'gym-001',
       issuedByAgent: 'retention',
     })
 
@@ -81,7 +81,7 @@ describe('CommandBus.issue()', () => {
       status: 'pending',
       attempts: 0,
       maxAttempts: 3,
-      gymId: 'gym-001',
+      accountId: 'gym-001',
       issuedByAgent: 'retention',
       payload: { recipientEmail: 'dan@example.com' },
     }))
@@ -92,7 +92,7 @@ describe('CommandBus.issue()', () => {
     const bus = new CommandBus(deps)
 
     const id = await bus.issue('SendSMS', {}, {
-      gymId: 'gym-001',
+      accountId: 'gym-001',
       issuedByAgent: 'retention',
     })
 
@@ -104,7 +104,7 @@ describe('CommandBus.issue()', () => {
     const bus = new CommandBus(deps)
 
     await bus.issue('CreateTask', {}, {
-      gymId: 'gym-001',
+      accountId: 'gym-001',
       issuedByAgent: 'retention',
       maxAttempts: 5,
     })
@@ -119,7 +119,7 @@ describe('CommandBus.issue()', () => {
     const bus = new CommandBus(deps)
 
     await bus.issue('SendEmail', {}, {
-      gymId: 'gym-001',
+      accountId: 'gym-001',
       issuedByAgent: 'retention',
       taskId: 'task-abc',
     })

@@ -1,6 +1,38 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession, getTier } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function computeNextRun(agent: { trigger_mode?: string; cron_schedule?: string; run_hour?: number }): string | null {
+  if (agent.trigger_mode !== 'cron') return null
+  const now = new Date()
+  const hour = agent.run_hour ?? 9
+
+  if (!agent.cron_schedule || agent.cron_schedule === 'daily') {
+    const next = new Date()
+    next.setHours(hour, 0, 0, 0)
+    if (next <= now) next.setDate(next.getDate() + 1)
+    return next.toISOString()
+  }
+  if (agent.cron_schedule === 'hourly') {
+    const next = new Date(now)
+    next.setMinutes(0, 0, 0)
+    next.setHours(next.getHours() + 1)
+    return next.toISOString()
+  }
+  if (agent.cron_schedule === 'weekly') {
+    const next = new Date()
+    next.setHours(hour, 0, 0, 0)
+    const daysUntilMonday = (8 - next.getDay()) % 7 || 7
+    if (next <= now) next.setDate(next.getDate() + daysUntilMonday)
+    return next.toISOString()
+  }
+  return null
+}
 
 export async function GET(req: NextRequest) {
   const session = await getSession()
@@ -15,15 +47,15 @@ export async function GET(req: NextRequest) {
 
     // Silently clean up expired demo agents (fire and forget)
     supabaseAdmin
-      .from('autopilots')
+      .from('agents')
       .delete()
       .lt('expires_at', new Date().toISOString())
       .not('demo_session_id', 'is', null)
       .then(() => {})
 
-    // Get this session's autopilots (non-expired)
-    const { data: autopilots } = await supabaseAdmin
-      .from('autopilots')
+    // Get this session's agents (non-expired)
+    const { data: agents } = await supabaseAdmin
+      .from('agents')
       .select('*')
       .eq('demo_session_id', sessionId)
       .gt('expires_at', new Date().toISOString())
@@ -92,16 +124,21 @@ export async function GET(req: NextRequest) {
       user: { id: `demo-${sessionId}`, email: 'demo@gymagents.com' },
       gym: {
         id: 'demo-gym',
-        gym_name: 'PushPress East',
+        account_name: 'PushPress East',
         member_count: 127,
         pushpress_company_id: process.env.PUSHPRESS_COMPANY_ID,
       },
       tier: 'pro',
-      autopilots: autopilots || [],
+      agents: agents || [],
       recentRuns: [],
       pendingActions,
       monthlyRunCount: 14,
       recentEvents: [],
+      stats: {
+        activeAgents: (agents || []).filter((a: any) => a.is_active).length,
+        pendingCount: pendingActions.length,
+        lastRunAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      },
       isDemo: true,
     })
   }
@@ -112,54 +149,85 @@ export async function GET(req: NextRequest) {
     .eq('id', session.id)
     .single()
   
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
-    .select('*')
-    .eq('user_id', session.id)
-    .single()
-  
+  const account = await getAccountForUser(session.id)
+
   const tier = getTier(user)
-  
-  // Get autopilots (v2: includes trigger fields)
-  let autopilots: any[] = []
-  if (gym) {
+
+  // Get agents + their automations for this account
+  let agents: any[] = []
+  if (account) {
     const { data } = await supabaseAdmin
-      .from('autopilots')
+      .from('agents')
       .select('*')
-      .eq('gym_id', gym.id)
-      .order('created_at', { ascending: true })
-    autopilots = data || []
+      .eq('account_id', account.id)
+      .order('created_at', { ascending: false })
+
+    // Fetch automations and merge into agent objects for backward-compatible response
+    const { data: automations } = await supabaseAdmin
+      .from('agent_automations')
+      .select('*')
+      .eq('account_id', account.id)
+
+    const autoMap = new Map<string, any[]>()
+    for (const a of automations ?? []) {
+      const list = autoMap.get(a.agent_id) ?? []
+      list.push(a)
+      autoMap.set(a.agent_id, list)
+    }
+
+    agents = (data || []).map((agent: any) => {
+      const agentAutos = autoMap.get(agent.id) ?? []
+      const cronAuto = agentAutos.find((a: any) => a.trigger_type === 'cron')
+      const eventAuto = agentAutos.find((a: any) => a.trigger_type === 'event')
+      const merged = {
+        ...agent,
+        automations: agentAutos,
+        cron_schedule: cronAuto?.cron_schedule ?? agent.cron_schedule,
+        run_hour: cronAuto?.run_hour ?? agent.run_hour,
+        trigger_event: eventAuto?.event_type ?? agent.trigger_event,
+      }
+      return {
+        ...merged,
+        next_run_at: computeNextRun(merged),
+      }
+    })
   }
-  
+
   // Get recent runs
   let recentRuns: any[] = []
-  if (gym) {
+  if (account) {
     const { data } = await supabaseAdmin
       .from('agent_runs')
       .select('*')
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .order('created_at', { ascending: false })
       .limit(5)
     recentRuns = data || []
   }
   
-  // Get pending actions — prefer agent_tasks (new), fall back to agent_actions (legacy)
+  // Get pending actions from agent_tasks
   let pendingActions: any[] = []
-  if (gym) {
-    // Try agent_tasks first
-    const { data: tasks, error: tasksError } = await supabaseAdmin
+  if (account) {
+    const { data: tasks } = await supabaseAdmin
       .from('agent_tasks')
       .select('*')
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .in('status', ['open', 'awaiting_approval', 'in_progress'])
       .order('created_at', { ascending: false })
       .limit(20)
 
-    if (!tasksError && tasks && tasks.length > 0) {
-      // Map agent_tasks rows to ActionCard shape
+    if (tasks && tasks.length > 0) {
       pendingActions = tasks.map((t: {
         id: string
+        status: string
+        assigned_agent?: string
+        task_type?: string
+        goal?: string
+        priority?: string
         context?: Record<string, unknown>
+        member_name?: string
+        member_email?: string
+        member_id?: string
         insight_member_name?: string
         insight_member_email?: string
         insight_member_id?: string
@@ -174,77 +242,90 @@ export async function GET(req: NextRequest) {
         insight_estimated_impact?: string
         created_at: string
       }) => {
-        const ctx = t.context ?? {}
+        const ctx = (t.context ?? {}) as Record<string, unknown>
         return {
           id: t.id,
+          assignedAgent: t.assigned_agent ?? 'gm',
+          taskType: t.task_type ?? 'ad_hoc',
+          goal: t.goal ?? '',
+          priority: (t.priority ?? ctx.priority ?? 'medium') as 'critical' | 'high' | 'medium' | 'low',
           approved: null,
           dismissed: null,
           content: {
-            memberId: t.insight_member_id ?? (ctx as Record<string, unknown>).memberId ?? t.id,
-            memberName: t.insight_member_name ?? (ctx as Record<string, unknown>).memberName ?? 'Member',
-            memberEmail: t.insight_member_email ?? (ctx as Record<string, unknown>).memberEmail ?? '',
-            riskLevel: (t.insight_risk_level ?? (ctx as Record<string, unknown>).riskLevel ?? 'medium') as 'high' | 'medium' | 'low',
-            riskReason: t.insight_reason ?? (ctx as Record<string, unknown>).riskReason ?? '',
-            recommendedAction: t.insight_recommended_action ?? (ctx as Record<string, unknown>).recommendedAction ?? '',
-            draftedMessage: t.insight_draft_message ?? (ctx as Record<string, unknown>).draftedMessage ?? '',
-            messageSubject: t.insight_message_subject ?? (ctx as Record<string, unknown>).messageSubject ?? '',
-            confidence: t.insight_confidence ?? (ctx as Record<string, unknown>).confidence ?? 0.75,
-            insights: t.insight_detail ?? (ctx as Record<string, unknown>).insights ?? '',
-            playbookName: t.insight_playbook_name ?? (ctx as Record<string, unknown>).playbookName ?? undefined,
-            estimatedImpact: t.insight_estimated_impact ?? '',
+            memberId: t.insight_member_id ?? ctx.memberId ?? t.id,
+            memberName: t.insight_member_name ?? t.member_name ?? ctx.memberName ?? 'Member',
+            memberEmail: t.insight_member_email ?? t.member_email ?? ctx.memberEmail ?? '',
+            riskLevel: (t.insight_risk_level ?? ctx.riskLevel ?? 'medium') as 'high' | 'medium' | 'low',
+            riskReason: t.insight_reason ?? ctx.riskReason ?? '',
+            recommendedAction: t.insight_recommended_action ?? ctx.recommendedAction ?? '',
+            draftedMessage: t.insight_draft_message ?? ctx.draftMessage ?? '',
+            messageSubject: t.insight_message_subject ?? ctx.messageSubject ?? '',
+            confidence: t.insight_confidence ?? ctx.confidence ?? 0.75,
+            insights: t.insight_detail ?? ctx.insightDetail ?? '',
+            playbookName: t.insight_playbook_name ?? ctx.playbookName ?? undefined,
+            estimatedImpact: t.insight_estimated_impact ?? ctx.estimatedImpact ?? '',
           },
         }
       })
-    } else if (recentRuns.length > 0) {
-      // Fall back to legacy agent_actions
-      const runIds = recentRuns.map((r: { id: string }) => r.id)
-      const { data } = await supabaseAdmin
-        .from('agent_actions')
-        .select('*')
-        .in('agent_run_id', runIds)
-        .is('approved', null)
-        .is('dismissed', null)
-        .order('created_at', { ascending: false })
-      pendingActions = data || []
     }
   }
   
+  // Annotate agents with pending task counts
+  if (pendingActions.length > 0) {
+    const countByAgent = new Map<string, number>()
+    for (const action of pendingActions) {
+      const key = action.assignedAgent ?? 'gm'
+      countByAgent.set(key, (countByAgent.get(key) ?? 0) + 1)
+    }
+    agents = agents.map((agent: any) => ({
+      ...agent,
+      pending_count: countByAgent.get(agent.id) ?? countByAgent.get(agent.skill_type) ?? 0,
+    }))
+  }
+
   // Get monthly run count
   const startOfMonth = new Date()
   startOfMonth.setDate(1)
   startOfMonth.setHours(0, 0, 0, 0)
   
   let monthlyRunCount = 0
-  if (gym) {
+  if (account) {
     const { count } = await supabaseAdmin
       .from('agent_runs')
       .select('*', { count: 'exact', head: true })
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .gte('created_at', startOfMonth.toISOString())
     monthlyRunCount = count || 0
   }
 
   // Get recent webhook events (last 10)
   let recentEvents: any[] = []
-  if (gym) {
+  if (account) {
     const { data } = await supabaseAdmin
       .from('webhook_events')
       .select('id, event_type, created_at, agent_runs_triggered, processed_at')
-      .eq('gym_id', gym.id)
+      .eq('account_id', account.id)
       .order('created_at', { ascending: false })
       .limit(10)
     recentEvents = data || []
   }
   
+  const stats = {
+    activeAgents: agents.filter((a: any) => a.is_active).length,
+    pendingCount: pendingActions.length,
+    lastRunAt: recentRuns[0]?.created_at ?? null,
+  }
+
   return NextResponse.json({
     user,
-    gym,
+    account,
     tier,
-    autopilots,
+    agents,
     recentRuns,
     pendingActions,
     monthlyRunCount,
     recentEvents,
+    stats,
     isDemo: false,
   })
 }

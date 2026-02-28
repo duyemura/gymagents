@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { runEventAgentWithMCP } from '@/lib/claude'
@@ -99,8 +101,8 @@ async function processWebhookAsync(rawBody: string) {
   console.log(`[webhook] ${eventType} for company=${companyId}`)
 
   // Look up gym by PushPress company ID
-  const { data: gym, error: gymErr } = await supabaseAdmin
-    .from('gyms')
+  const { data: account, error: gymErr } = await supabaseAdmin
+    .from('accounts')
     .select('id, gym_name, pushpress_api_key, pushpress_company_id')
     .eq('pushpress_company_id', companyId)
     .single()
@@ -111,7 +113,7 @@ async function processWebhookAsync(rawBody: string) {
   const { data: webhookEvent, error: insertErr } = await supabaseAdmin
     .from('webhook_events')
     .insert({
-      gym_id: gym?.id ?? null,
+      account_id: gym?.id ?? null,
       event_type: eventType,
       payload: payload as Record<string, unknown>,
       agent_runs_triggered: 0
@@ -121,7 +123,7 @@ async function processWebhookAsync(rawBody: string) {
 
   if (insertErr) console.error(`[webhook] insert failed: ${insertErr.message} (code=${insertErr.code})`)
 
-  if (!gym) {
+  if (!account) {
     console.log(`[webhook] no gym for company=${companyId}, event stored`)
     // Still mark as processed even when no gym matched
     if (webhookEvent?.id) {
@@ -133,14 +135,14 @@ async function processWebhookAsync(rawBody: string) {
     return
   }
 
-  console.log(`[webhook] gym matched: ${gym.id} (${gym.gym_name})`)
+  console.log(`[webhook] gym matched: ${account.id} (${gym.account_name})`)
 
   // Decrypt the stored API key to pass to MCP
   let decryptedApiKey: string
   try {
     decryptedApiKey = decrypt(gym.pushpress_api_key)
   } catch (err: any) {
-    console.error('[webhook] could not decrypt API key for gym', gym.id, err.message)
+    console.error('[webhook] could not decrypt API key for gym', account.id, err.message)
     // Still mark as processed so we know it ran
     if (webhookEvent?.id) {
       await supabaseAdmin
@@ -156,29 +158,30 @@ async function processWebhookAsync(rawBody: string) {
     pushpress_api_key: decryptedApiKey
   }
 
-  // Find active agent subscriptions for this event type
-  const { data: subs, error: subsErr } = await supabaseAdmin
-    .from('agent_subscriptions')
-    .select('id, autopilot_id, autopilots(*)')
-    .eq('gym_id', gym.id)
+  // Find active event automations for this event type
+  const { data: automations, error: autoErr } = await supabaseAdmin
+    .from('agent_automations')
+    .select('id, agent_id, agents!inner(*)')
+    .eq('account_id', account.id)
+    .eq('trigger_type', 'event')
     .eq('event_type', eventType)
     .eq('is_active', true)
 
-  if (subsErr) console.log(`[webhook] subs query error: ${subsErr.message}`)
-  console.log(`[webhook] found ${subs?.length ?? 0} subscriptions for ${eventType}`)
+  if (autoErr) console.log(`[webhook] automations query error: ${autoErr.message}`)
+  console.log(`[webhook] found ${automations?.length ?? 0} event automations for ${eventType}`)
 
   let runsTriggered = 0
   // eventData already extracted above for companyId; reuse it for agent runs
 
-  for (const sub of subs ?? []) {
-    const autopilot = (sub as any).autopilots
-    if (!autopilot?.is_active) continue
+  for (const auto of automations ?? []) {
+    const agent = (auto as any).agents
+    if (!agent?.is_active) continue
 
     try {
-      await runSubscribedAgent(gymWithKey, autopilot, eventType, eventData)
+      await runSubscribedAgent(gymWithKey, agent, eventType, eventData, auto.id)
       runsTriggered++
     } catch (err) {
-      console.error(`[webhook] agent ${autopilot.id} failed:`, err)
+      console.error(`[webhook] agent ${agent.id} failed:`, err)
     }
   }
 
@@ -199,7 +202,7 @@ async function processWebhookAsync(rawBody: string) {
     console.log(`[webhook] running GMAgent.handleEvent...`)
     const gmAgent = new GMAgent(buildWebhookAgentDeps())
     gmAgent.setCreateInsightTask(createInsightTask)
-    await gmAgent.handleEvent(gym.id, {
+    await gmAgent.handleEvent(account.id, {
       type: eventType,
       data: eventData,
     })
@@ -208,21 +211,67 @@ async function processWebhookAsync(rawBody: string) {
     console.error('[webhook] GMAgent.handleEvent error:', err)
   }
 
+  // ── Win-back recovery attribution ─────────────────────────────────────────
+  // When a cancelled member reactivates, check for a win_back task to attribute
+  if (eventType === 'customer.status.changed') {
+    const newStatus = (eventData.newStatus ?? eventData.status) as string | undefined
+    const previousStatus = eventData.previousStatus as string | undefined
+    const customerId = (eventData.customerId ?? eventData.id) as string | undefined
+
+    if (newStatus === 'active' && previousStatus === 'cancelled' && customerId) {
+      try {
+        const { data: winBackTask } = await supabaseAdmin
+          .from('agent_tasks')
+          .select('id, gym_id, context')
+          .eq('account_id', account.id)
+          .eq('task_type', 'win_back')
+          .is('outcome', null)
+          .or(`context->>memberId.eq.${customerId},member_email.eq.${eventData.customerEmail ?? ''}`)
+          .limit(1)
+          .single()
+
+        if (winBackTask) {
+          await supabaseAdmin
+            .from('agent_tasks')
+            .update({
+              status: 'resolved',
+              outcome: 'recovered',
+              outcome_reason: 'member_reactivated_after_win_back',
+              outcome_score: 95,
+              attributed_at: new Date().toISOString(),
+              resolved_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', winBackTask.id)
+
+          console.log(`[webhook] Win-back attributed! task=${winBackTask.id}`)
+        }
+      } catch (err) {
+        console.error('[webhook] win-back attribution error:', err)
+      }
+    }
+  }
+
   console.log(`[webhook] ${eventType} done — ${runsTriggered} agents fired`)
 }
 
 async function runSubscribedAgent(
-  gym: { id: string; gym_name: string; pushpress_api_key: string; pushpress_company_id: string },
-  autopilot: { id: string; skill_type: string; name?: string; system_prompt?: string; action_type?: string },
+  gym: { id: string; account_name: string; pushpress_api_key: string; pushpress_company_id: string },
+  agent: { id: string; skill_type: string; name?: string; system_prompt?: string; action_type?: string },
   eventType: string,
-  eventData: Record<string, unknown>
+  eventData: Record<string, unknown>,
+  automationId?: string,
 ) {
   // Create agent run record
   const { data: run } = await supabaseAdmin
     .from('agent_runs')
     .insert({
-      gym_id: gym.id,
-      agent_type: autopilot.skill_type,
+      account_id: gym.id,
+      agent_id: agent.id,
+      agent_type: agent.skill_type,
+      automation_id: automationId ?? null,
+      trigger_source: 'event',
+      trigger_ref: eventType,
       status: 'running',
       input_summary: `Event: ${eventType}`
     })
@@ -233,18 +282,9 @@ async function runSubscribedAgent(
     // Run the MCP-powered agent — it has full PushPress tool access
     const result = await runEventAgentWithMCP({
       gym,
-      autopilot,
+      agent,
       eventType,
       eventPayload: eventData
-    })
-
-    // Store the action
-    await supabaseAdmin.from('agent_actions').insert({
-      agent_run_id: run!.id,
-      action_type: autopilot.action_type ?? 'draft_message',
-      content: result.output,
-      approved: null,
-      dismissed: null
     })
 
     // Complete the run
@@ -257,20 +297,6 @@ async function runSubscribedAgent(
       })
       .eq('id', run!.id)
 
-    // Update autopilot stats
-    const { data: ap } = await supabaseAdmin
-      .from('autopilots')
-      .select('run_count')
-      .eq('id', autopilot.id)
-      .single()
-
-    await supabaseAdmin
-      .from('autopilots')
-      .update({
-        last_run_at: new Date().toISOString(),
-        run_count: (ap?.run_count ?? 0) + 1
-      })
-      .eq('id', autopilot.id)
   } catch (err) {
     await supabaseAdmin
       .from('agent_runs')

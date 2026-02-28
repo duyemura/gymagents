@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,22 +76,18 @@ export async function GET(req: NextRequest) {
   }
 
   // Resolve gym id
-  const gymId = (session as any).gymId
-  let resolvedGymId = gymId
+  const accountId = (session as any).accountId
+  let resolvedGymId = accountId
   if (!resolvedGymId) {
-    const { data: gym } = await supabaseAdmin
-      .from('gyms')
-      .select('id')
-      .eq('user_id', session.id)
-      .single()
-    if (!gym) return NextResponse.json({ error: 'no gym' }, { status: 400 })
-    resolvedGymId = gym.id
+    const account = await getAccountForUser(session.id)
+    if (!account) return NextResponse.json({ error: 'no gym' }, { status: 400 })
+    resolvedGymId = account.id
   }
 
   const { data: runs, error } = await supabaseAdmin
     .from('agent_runs')
     .select('id, completed_at, members_scanned, actions_taken, messages_sent, cost_usd, billed_usd, attributed_value_usd, status, created_at')
-    .eq('gym_id', resolvedGymId)
+    .eq('account_id', resolvedGymId)
     .eq('status', 'completed')
     .order('completed_at', { ascending: false })
     .limit(limit)

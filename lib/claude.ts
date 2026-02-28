@@ -11,8 +11,43 @@ import Anthropic from '@anthropic-ai/sdk'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { AtRiskMember } from './pushpress'
+import { SONNET } from './models'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+// Lazy singleton — avoids module-level init crashing Next.js build
+let _anthropic: Anthropic | null = null
+const anthropic = new Proxy({} as Anthropic, {
+  get(_, prop) {
+    if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+    return (_anthropic as any)[prop]
+  },
+})
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Simple text evaluator (no tools, no loop)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Call Claude and return raw text. Use for single-shot prompts that don't
+ * need tool use or multi-turn conversation.
+ *
+ * Recommended: pass HAIKU for lightweight tasks (classification, profiling).
+ * Defaults to SONNET if model is omitted.
+ */
+export async function callClaude(
+  system: string,
+  prompt: string,
+  model: string = SONNET,
+  maxTokens = 2000,
+): Promise<string> {
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  const content = response.content[0]
+  return content.type === 'text' ? content.text : ''
+}
 
 // Path to the PP MCP server binary (installed as dep in the Next.js app)
 const PP_MCP_BIN = require.resolve('@pushpress/pushpress/bin/mcp-server.js')
@@ -22,7 +57,7 @@ const PP_MCP_BIN = require.resolve('@pushpress/pushpress/bin/mcp-server.js')
 // ──────────────────────────────────────────────────────────────────────────────
 
 export interface MCPAgentOptions {
-  gymName: string
+  accountName: string
   systemPrompt: string
   userPrompt: string
   apiKey: string
@@ -42,7 +77,7 @@ export interface MCPAgentResult {
  * Spawns `mcp start` as a child process, connects via stdio, then runs a tool-use loop.
  */
 export async function runAgentWithMCP(opts: MCPAgentOptions): Promise<MCPAgentResult> {
-  const { gymName, systemPrompt, userPrompt, apiKey, companyId, maxTurns = 5 } = opts
+  const { accountName, systemPrompt, userPrompt, apiKey, companyId, maxTurns = 5 } = opts
 
   // Spawn the PP MCP server
   const transport = new StdioClientTransport({
@@ -83,7 +118,7 @@ export async function runAgentWithMCP(opts: MCPAgentOptions): Promise<MCPAgentRe
     // Agentic loop
     for (let turn = 0; turn < maxTurns; turn++) {
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-5',
+        model: SONNET,
         max_tokens: 4000,
         system: systemPrompt,
         tools: anthropicTools,
@@ -173,20 +208,46 @@ export interface AgentOutput {
   _usage?: { input_tokens: number; output_tokens: number }
 }
 
+/**
+ * Repair common JSON issues from LLM output.
+ * The most frequent problem: literal newlines inside JSON string values.
+ * This walks the string character-by-character and escapes control characters
+ * that appear inside quoted strings.
+ */
+function repairJSON(raw: string): string {
+  let inString = false
+  let result = ''
+  for (let i = 0; i < raw.length; i++) {
+    const char = raw[i]
+    const prev = raw[i - 1]
+    if (char === '"' && prev !== '\\') {
+      inString = !inString
+    }
+    if (inString) {
+      if (char === '\n') { result += '\\n'; continue }
+      if (char === '\r') { result += '\\r'; continue }
+      if (char === '\t') { result += '\\t'; continue }
+    }
+    result += char
+  }
+  return result
+}
+
 export async function runAtRiskDetector(
-  gymName: string,
+  accountName: string,
   members: AtRiskMember[],
   tier: string
 ): Promise<AgentOutput> {
   const membersToAnalyze = tier === 'free' ? members.slice(0, 5) : members
 
-  const systemPrompt = `You are the autopilot assistant for ${gymName}, a boutique fitness gym. 
+  const systemPrompt = `You are the autopilot assistant for ${accountName}, a boutique fitness gym.
 You analyze member check-in patterns to identify members who are at risk of canceling their membership.
 You speak directly to the gym owner in a warm, knowledgeable way — like a trusted advisor who knows their gym.
 NEVER use the word "agent" or "AI". You are "the autopilot" or "your assistant."
-You must output valid JSON only. No markdown, no prose outside the JSON.`
+You must output valid JSON only. No markdown, no prose outside the JSON.
+IMPORTANT: In JSON string values, use \\n for line breaks — never include literal newlines inside a JSON string.`
 
-  const userPrompt = `Your autopilot scanned ${gymName}'s check-in data and found ${membersToAnalyze.length} members who may be at risk.
+  const userPrompt = `Your autopilot scanned ${accountName}'s check-in data and found ${membersToAnalyze.length} members who may be at risk.
 
 Here's the data for each member:
 ${membersToAnalyze.map(m => `
@@ -229,8 +290,8 @@ Output this exact JSON structure:
 }`
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 4000,
+    model: SONNET,
+    max_tokens: 8000,
     messages: [{ role: 'user', content: userPrompt }],
     system: systemPrompt
   })
@@ -242,7 +303,17 @@ Output this exact JSON structure:
   const jsonMatch = text.match(/\{[\s\S]*\}/)
   if (!jsonMatch) throw new Error('No JSON found in response')
 
-  const parsed = JSON.parse(jsonMatch[0]) as AgentOutput
+  let parsed: AgentOutput
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as AgentOutput
+  } catch {
+    // Claude sometimes includes literal newlines inside JSON strings — repair and retry
+    try {
+      parsed = JSON.parse(repairJSON(jsonMatch[0])) as AgentOutput
+    } catch (err2) {
+      throw new Error(`Failed to parse agent response: ${(err2 as Error).message}`)
+    }
+  }
   // Attach token usage for cost tracking
   parsed._usage = {
     input_tokens: response.usage.input_tokens,
@@ -256,21 +327,21 @@ Output this exact JSON structure:
 // ──────────────────────────────────────────────────────────────────────────────
 
 export async function runEventAgentWithMCP(opts: {
-  gym: { id: string; gym_name: string; pushpress_api_key: string; pushpress_company_id: string }
-  autopilot: { skill_type: string; name?: string; system_prompt?: string; action_type?: string }
+  gym: { id: string; account_name: string; pushpress_api_key: string; pushpress_company_id: string }
+  agent: { skill_type: string; name?: string; system_prompt?: string; action_type?: string }
   eventType: string
   eventPayload: Record<string, unknown>
 }): Promise<MCPAgentResult> {
-  const { gym, autopilot, eventType, eventPayload } = opts
+  const { gym, agent, eventType, eventPayload } = opts
 
   const systemPrompt =
-    autopilot.system_prompt ??
-    buildDefaultEventSystemPrompt(eventType, gym.gym_name)
+    agent.system_prompt ??
+    buildDefaultEventSystemPrompt(eventType, gym.account_name)
 
-  const userPrompt = buildEventUserPrompt(eventType, eventPayload, gym.gym_name)
+  const userPrompt = buildEventUserPrompt(eventType, eventPayload, gym.account_name)
 
   return runAgentWithMCP({
-    gymName: gym.gym_name,
+    accountName: gym.account_name,
     systemPrompt,
     userPrompt,
     apiKey: gym.pushpress_api_key,
@@ -279,33 +350,33 @@ export async function runEventAgentWithMCP(opts: {
   })
 }
 
-function buildDefaultEventSystemPrompt(eventType: string, gymName: string): string {
+function buildDefaultEventSystemPrompt(eventType: string, accountName: string): string {
   const prompts: Record<string, string> = {
-    'customer.created': `You are the onboarding assistant for ${gymName}. A new member just joined! Use the PushPress tools to get their full profile, then draft a warm, personal welcome message from the gym owner. Mention what to expect their first week. Output JSON: { subject, body, notes }.`,
-    'customer.status.changed': `You are the member engagement assistant for ${gymName}. A member's status just changed. Use PushPress tools to understand their history and current situation. If they've gone inactive or cancelled, draft a sincere, non-pushy win-back message. Output JSON: { subject, body, urgency, notes }.`,
-    'enrollment.created': `You are the enrollment assistant for ${gymName}. A member just enrolled in a program. Use PushPress tools to look up their profile. Draft a congratulatory message with helpful next steps. Output JSON: { subject, body, notes }.`,
-    'enrollment.status.changed': `You are the enrollment assistant for ${gymName}. A member's enrollment status changed. Use PushPress tools to check context. Draft an appropriate message. Output JSON: { subject, body, notes }.`,
-    'checkin.created': `You are the engagement assistant for ${gymName}. A member just checked in. Use PushPress tools to check their checkin history — detect milestones like 10th visit, comeback after absence, streak. Output JSON: { milestone_detected, milestone_note, action_recommended }.`,
-    'appointment.scheduled': `You are the appointment assistant for ${gymName}. An appointment was just booked. Use PushPress tools to look up the customer. Draft a confirmation message. Output JSON: { subject, body, notes }.`,
-    'appointment.canceled': `You are the retention assistant for ${gymName}. An appointment was just canceled. Use PushPress tools to check their history. Draft a brief, non-pushy reschedule offer. Output JSON: { subject, body, notes }.`,
-    'reservation.created': `You are the class engagement assistant for ${gymName}. A member just reserved a class spot. Use PushPress tools to check their profile. Consider sending encouragement if it's their first class or a comeback. Output JSON: { action_needed, subject, body }.`,
-    'reservation.canceled': `You are the retention assistant for ${gymName}. A member just canceled a class reservation. Use PushPress tools to check their attendance pattern. If concerning, draft a light check-in. Output JSON: { action_needed, subject, body }.`,
+    'customer.created': `You are the onboarding assistant for ${accountName}. A new member just joined! Use the PushPress tools to get their full profile, then draft a warm, personal welcome message from the gym owner. Mention what to expect their first week. Output JSON: { subject, body, notes }.`,
+    'customer.status.changed': `You are the member engagement assistant for ${accountName}. A member's status just changed. Use PushPress tools to understand their history and current situation. If they've gone inactive or cancelled, draft a sincere, non-pushy win-back message. Output JSON: { subject, body, urgency, notes }.`,
+    'enrollment.created': `You are the enrollment assistant for ${accountName}. A member just enrolled in a program. Use PushPress tools to look up their profile. Draft a congratulatory message with helpful next steps. Output JSON: { subject, body, notes }.`,
+    'enrollment.status.changed': `You are the enrollment assistant for ${accountName}. A member's enrollment status changed. Use PushPress tools to check context. Draft an appropriate message. Output JSON: { subject, body, notes }.`,
+    'checkin.created': `You are the engagement assistant for ${accountName}. A member just checked in. Use PushPress tools to check their checkin history — detect milestones like 10th visit, comeback after absence, streak. Output JSON: { milestone_detected, milestone_note, action_recommended }.`,
+    'appointment.scheduled': `You are the appointment assistant for ${accountName}. An appointment was just booked. Use PushPress tools to look up the customer. Draft a confirmation message. Output JSON: { subject, body, notes }.`,
+    'appointment.canceled': `You are the retention assistant for ${accountName}. An appointment was just canceled. Use PushPress tools to check their history. Draft a brief, non-pushy reschedule offer. Output JSON: { subject, body, notes }.`,
+    'reservation.created': `You are the class engagement assistant for ${accountName}. A member just reserved a class spot. Use PushPress tools to check their profile. Consider sending encouragement if it's their first class or a comeback. Output JSON: { action_needed, subject, body }.`,
+    'reservation.canceled': `You are the retention assistant for ${accountName}. A member just canceled a class reservation. Use PushPress tools to check their attendance pattern. If concerning, draft a light check-in. Output JSON: { action_needed, subject, body }.`,
   }
   return (
     prompts[eventType] ??
-    `You are the AI assistant for ${gymName}. Use PushPress tools to understand the context of this event, then provide the most helpful response. Output JSON.`
+    `You are the AI assistant for ${accountName}. Use PushPress tools to understand the context of this event, then provide the most helpful response. Output JSON.`
   )
 }
 
 function buildEventUserPrompt(
   eventType: string,
   payload: Record<string, unknown>,
-  gymName: string
+  accountName: string
 ): string {
   const data = (payload.data ?? payload.object ?? payload) as Record<string, unknown>
   const customerId = data.customerUuid ?? data.customer_id ?? data.customer ?? data.uuid ?? null
 
-  return `Gym: ${gymName}
+  return `Gym: ${accountName}
 Event: ${eventType}
 Timestamp: ${new Date().toISOString()}
 ${customerId ? `Customer ID: ${customerId} — use PushPress tools to look up their full profile and history.` : ''}

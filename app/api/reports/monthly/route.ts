@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { createElement } from 'react'
@@ -13,7 +15,7 @@ export async function GET(req: NextRequest) {
   const monthParam = searchParams.get('month') // e.g. "2026-02"
 
   // Demo mode: return a sample PDF
-  const gymName = isDemo ? 'PushPress East (Demo)' : (session?.gymName ?? 'Your Gym')
+  const accountName = isDemo ? 'PushPress East (Demo)' : (session?.accountName ?? 'Your Gym')
   const month = monthParam
     ? new Date(monthParam + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     : new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
@@ -43,12 +45,12 @@ export async function GET(req: NextRequest) {
   ]
 
   // Real gym: pull from DB
-  if (!isDemo && session?.gymId) {
+  if (!isDemo && session?.accountId) {
     try {
       const { data: runs } = await supabaseAdmin
         .from('agent_runs')
         .select('*')
-        .eq('gym_id', session.gymId)
+        .eq('account_id', session.accountId)
         .gte('completed_at', monthParam ? `${monthParam}-01` : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
 
       if (runs && runs.length > 0) {
@@ -72,7 +74,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const element = createElement(RetentionReportPDF, { gymName, month, stats, actions })
+    const element = createElement(RetentionReportPDF, { accountName, month, stats, actions })
     const buffer = await renderToBuffer(element as any)
 
     return new NextResponse(buffer, {

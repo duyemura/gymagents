@@ -58,7 +58,7 @@ vi.mock('@supabase/supabase-js', () => {
 // ── Mock DB tasks ──────────────────────────────────────────────────────────────
 vi.mock('../db/tasks', () => ({
   createInsightTask: vi.fn().mockResolvedValue({ id: 'task-999' }),
-  DEMO_GYM_ID: '00000000-0000-0000-0000-000000000001',
+  DEMO_ACCOUNT_ID: '00000000-0000-0000-0000-000000000001',
 }))
 
 // ── Mock DB chat ───────────────────────────────────────────────────────────────
@@ -211,25 +211,25 @@ describe('POST /api/gm/chat', () => {
   })
 
   it('returns 400 when message is missing', async () => {
-    const req = makeRequest({ gymId: '00000000-0000-0000-0000-000000000001' })
+    const req = makeRequest({ accountId: '00000000-0000-0000-0000-000000000001' })
     const res = await POST(req)
     expect(res.status).toBe(400)
     const body = await res.json()
     expect(body.error).toMatch(/message/i)
   })
 
-  it('returns 400 when gymId is missing', async () => {
+  it('returns 400 when accountId is missing', async () => {
     const req = makeRequest({ message: 'hello' })
     const res = await POST(req)
     expect(res.status).toBe(400)
     const body = await res.json()
-    expect(body.error).toMatch(/gymId/i)
+    expect(body.error).toMatch(/accountId/i)
   })
 
   it('returns 200 with reply and route for valid request', async () => {
     const req = makeRequest({
       message: 'plan a team dinner',
-      gymId: '00000000-0000-0000-0000-000000000001',
+      accountId: '00000000-0000-0000-0000-000000000001',
     })
     const res = await POST(req)
     expect(res.status).toBe(200)
@@ -252,7 +252,7 @@ describe('POST /api/gm/chat', () => {
       })
     const req = makeRequest({
       message: 'plan a team dinner',
-      gymId: '00000000-0000-0000-0000-000000000001',
+      accountId: '00000000-0000-0000-0000-000000000001',
     })
     const res = await POST(req)
     const body = await res.json()
@@ -262,7 +262,7 @@ describe('POST /api/gm/chat', () => {
   it('returns actionType in response', async () => {
     const req = makeRequest({
       message: 'plan a team dinner',
-      gymId: '00000000-0000-0000-0000-000000000001',
+      accountId: '00000000-0000-0000-0000-000000000001',
     })
     const res = await POST(req)
     const body = await res.json()
@@ -273,7 +273,7 @@ describe('POST /api/gm/chat', () => {
     mockAppendChatMessage.mockResolvedValue(undefined)
     const req = makeRequest({
       message: 'plan a team dinner',
-      gymId: '00000000-0000-0000-0000-000000000001',
+      accountId: '00000000-0000-0000-0000-000000000001',
     })
     await POST(req)
     // Should have been called at least twice (user msg + assistant msg)
@@ -294,7 +294,7 @@ describe('POST /api/gm/chat', () => {
       })
     const req = makeRequest({
       message: "who hasn't signed a waiver this month",
-      gymId: '00000000-0000-0000-0000-000000000001',
+      accountId: '00000000-0000-0000-0000-000000000001',
     })
     const res = await POST(req)
     expect(res.status).toBe(200)
@@ -316,7 +316,7 @@ describe('POST /api/gm/chat', () => {
       })
     const req = makeRequest({
       message: 'analyze why churn spiked in August',
-      gymId: '00000000-0000-0000-0000-000000000001',
+      accountId: '00000000-0000-0000-0000-000000000001',
     })
     const res = await POST(req)
     expect(res.status).toBe(200)
@@ -343,7 +343,7 @@ describe('POST /api/gm/chat', () => {
       })
     const req = makeRequest({
       message: 'print committed club sticker sheet',
-      gymId: '00000000-0000-0000-0000-000000000001',
+      accountId: '00000000-0000-0000-0000-000000000001',
     })
     const res = await POST(req)
     expect(res.status).toBe(200)
@@ -365,7 +365,7 @@ describe('appendChatMessage', () => {
     // Import actual function to test it calls supabase with right shape
     const { appendChatMessage } = await import('../db/chat')
     await appendChatMessage({
-      gymId: 'gym-123',
+      accountId: 'gym-123',
       role: 'user',
       content: 'Hello GM!',
       route: 'direct_answer',
@@ -374,7 +374,7 @@ describe('appendChatMessage', () => {
     // Since we mocked the module, verify it was called with correct args
     expect(mockAppendChatMessage).toHaveBeenCalledWith(
       expect.objectContaining({
-        gymId: 'gym-123',
+        accountId: 'gym-123',
         role: 'user',
         content: 'Hello GM!',
         route: 'direct_answer',
@@ -386,7 +386,7 @@ describe('appendChatMessage', () => {
   it('accepts all role types', async () => {
     const { appendChatMessage } = await import('../db/chat')
     for (const role of ['user', 'assistant', 'system_event'] as const) {
-      await appendChatMessage({ gymId: 'gym-1', role, content: 'test' })
+      await appendChatMessage({ accountId: 'gym-1', role, content: 'test' })
     }
     expect(mockAppendChatMessage).toHaveBeenCalledTimes(3)
   })
@@ -399,8 +399,8 @@ describe('appendChatMessage', () => {
 describe('getChatHistory', () => {
   it('returns messages in ascending order (mocked)', async () => {
     const fakeMessages = [
-      { id: '1', gymId: 'gym-1', role: 'user' as const, content: 'hi', createdAt: '2024-01-01T10:00:00Z' },
-      { id: '2', gymId: 'gym-1', role: 'assistant' as const, content: 'hello', createdAt: '2024-01-01T10:01:00Z' },
+      { id: '1', accountId: 'gym-1', role: 'user' as const, content: 'hi', createdAt: '2024-01-01T10:00:00Z' },
+      { id: '2', accountId: 'gym-1', role: 'assistant' as const, content: 'hello', createdAt: '2024-01-01T10:01:00Z' },
     ]
     mockGetChatHistory.mockResolvedValueOnce(fakeMessages)
 

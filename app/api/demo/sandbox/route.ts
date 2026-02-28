@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import jwt from 'jsonwebtoken'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -19,11 +21,11 @@ export async function POST(req: NextRequest) {
   const sessionId = crypto.randomUUID()
   const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
 
-  // Seed a real "At-Risk Monitor" autopilot row scoped to this session
+  // Seed a real "At-Risk Monitor" agent row scoped to this session
   try {
-    await supabaseAdmin.from('autopilots').insert({
+    await supabaseAdmin.from('agents').insert({
       id: crypto.randomUUID(),
-      gym_id: null,
+      account_id: null,
       user_id: `demo-${sessionId}`,
       demo_session_id: sessionId,
       expires_at: expiresAt,
@@ -40,14 +42,14 @@ export async function POST(req: NextRequest) {
       approval_rate: 0,
     })
   } catch (err) {
-    console.error('Demo autopilot seed error:', err)
+    console.error('Demo agent seed error:', err)
   }
 
   // Build JWT payload — include visitor details when provided
   const jwtPayload: Record<string, any> = {
     userId: `demo-${sessionId}`,
     email: 'demo@gymagents.com',
-    gymName: 'PushPress East',
+    accountName: 'PushPress East',
     companyId: process.env.PUSHPRESS_COMPANY_ID,
     apiKey: process.env.PUSHPRESS_API_KEY,
     isDemo: true,

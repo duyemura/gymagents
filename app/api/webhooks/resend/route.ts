@@ -1,13 +1,10 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { Webhook } from 'svix'
-import { handleInboundReply } from '@/lib/reply-agent'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { handleInboundReply, stripQuotedReply } from '@/lib/handle-reply'
+import { supabaseAdmin } from '@/lib/supabase'
 
 /**
  * Unified Resend webhook handler.
@@ -15,16 +12,12 @@ const supabase = createClient(
  *   https://app-orcin-one-70.vercel.app/api/webhooks/resend
  *
  * Handles:
- *   email.received   → fires reply agent loop
- *   email.opened     → logs open event, updates action
- *   email.delivered  → confirms delivery
- *   email.bounced    → marks member email invalid
- *   email.complained → marks member unsubscribed
+ *   email.received   → routes to RetentionAgent via handle-reply
+ *   email.opened     → updates outbound_messages
+ *   email.delivered   → updates outbound_messages
+ *   email.bounced    → logs bounce, optionally marks opt-out
+ *   email.complained → logs complaint, marks opt-out
  *   email.failed     → logs failure
- *
- * Signature verification: set RESEND_SENDING_WEBHOOK_SECRET to the
- * whsec_... value from Resend → Webhooks (the sending/events webhook,
- * distinct from the inbound receiving webhook secret).
  */
 export async function POST(req: NextRequest) {
   const rawBody = await req.text()
@@ -111,7 +104,7 @@ async function handleEmailReceived(data: any): Promise<Record<string, any>> {
     return { action: 'skipped', reason: 'no_reply_token', to: toAddress }
   }
 
-  const actionId = match[1]
+  const replyToken = match[1]
 
   // Resend's email.received webhook does NOT include the body in the payload.
   // Must call resend.emails.receiving.get(emailId).
@@ -141,36 +134,79 @@ async function handleEmailReceived(data: any): Promise<Record<string, any>> {
   const cleanText = stripQuotedReply(text || html)
   if (!cleanText.trim()) {
     console.log('email.received: empty body after stripping quotes')
-    return { action: 'skipped', reason: 'empty_body', actionId, bodyFetchStatus }
+    return { action: 'skipped', reason: 'empty_body', replyToken, bodyFetchStatus }
   }
 
   const nameMatch = from.match(/^(.+?)\s*</)
   const fromName = nameMatch ? nameMatch[1].trim() : from.split('@')[0]
   const fromEmail = from.match(/<(.+?)>/)?.[1] ?? from
 
-  console.log(`email.received: actionId=${actionId} from="${fromName}" <${fromEmail}> text="${cleanText.slice(0, 80)}"`)
+  console.log(`email.received: replyToken=${replyToken} from="${fromName}" <${fromEmail}> text="${cleanText.slice(0, 80)}"`)
 
+  // ── Check for waiting_event agent sessions linked to this reply_token ──
+  // If a session sent an email and called wait_for_reply, resume it now.
   try {
-    await handleInboundReply({
-      actionId,
+    const { data: linkedMsg } = await supabaseAdmin
+      .from('outbound_messages')
+      .select('session_id')
+      .eq('reply_token', replyToken)
+      .not('session_id', 'is', null)
+      .maybeSingle()
+
+    if (linkedMsg?.session_id) {
+      const { data: session } = await supabaseAdmin
+        .from('agent_sessions')
+        .select('id, status')
+        .eq('id', linkedMsg.session_id)
+        .eq('status', 'waiting_event')
+        .maybeSingle()
+
+      if (session) {
+        console.log(`email.received: resuming waiting_event session ${session.id} for reply_token=${replyToken}`)
+        const { resumeSession } = await import('@/lib/agents/session-runtime')
+        const events = resumeSession(session.id, {
+          replyContent: cleanText.trim(),
+          replyToken,
+        })
+        // Drain the generator to run the session to next pause point
+        for await (const _event of events) { /* consume */ }
+        return {
+          action: 'session_resumed',
+          sessionId: session.id,
+          replyToken,
+          from: fromEmail,
+        }
+      }
+    }
+  } catch (err: any) {
+    // Non-fatal — fall through to normal reply handling
+    console.warn('email.received: session resume check failed (non-fatal):', err?.message)
+  }
+
+  // ── Normal reply handling (task-based) ──
+  try {
+    const result = await handleInboundReply({
+      replyToken,
       memberReply: cleanText.trim(),
       memberEmail: fromEmail,
       memberName: fromName,
     })
-    console.log(`email.received: handleInboundReply completed for ${actionId}`)
+    console.log(`email.received: handleInboundReply completed`, result)
     return {
-      action: 'processed',
-      actionId,
+      action: result.processed ? 'processed' : 'skipped',
+      replyToken,
+      taskId: result.taskId,
+      reason: result.reason,
       from: fromEmail,
       memberName: fromName,
       replyLen: cleanText.length,
       bodyFetchStatus,
     }
   } catch (err: any) {
-    console.error(`email.received: handleInboundReply FAILED for ${actionId}:`, err)
+    console.error(`email.received: handleInboundReply FAILED for ${replyToken}:`, err)
     return {
       action: 'agent_error',
-      actionId,
+      replyToken,
       error: err?.message ?? 'unknown',
       bodyFetchStatus,
     }
@@ -184,17 +220,18 @@ async function handleEmailOpened(data: any): Promise<Record<string, any>> {
   if (!emailId) return { action: 'skipped', reason: 'no_email_id' }
 
   try {
-    const { error } = await supabase
-      .from('agent_actions')
-      .update({ email_opened_at: new Date().toISOString() })
-      .eq('external_email_id', emailId)
+    // Update outbound_messages instead of agent_actions
+    const { error } = await supabaseAdmin
+      .from('outbound_messages')
+      .update({ status: 'delivered' })
+      .eq('provider_message_id', emailId)
+      .eq('status', 'sent')
 
     if (error) {
-      console.log('email.opened: update failed (column may not exist):', error.message)
-      return { action: 'logged', note: 'db_update_failed', emailId }
+      console.log('email.opened: outbound_messages update failed:', error.message)
     }
-    console.log(`email.opened: marked email_id=${emailId}`)
-    return { action: 'marked_opened', emailId }
+    console.log(`email.opened: email_id=${emailId}`)
+    return { action: 'logged', emailId }
   } catch (e: any) {
     return { action: 'error', error: e?.message, emailId }
   }
@@ -205,8 +242,18 @@ async function handleEmailOpened(data: any): Promise<Record<string, any>> {
 async function handleEmailDelivered(data: any): Promise<Record<string, any>> {
   const emailId = data.email_id
   if (!emailId) return { action: 'skipped', reason: 'no_email_id' }
-  console.log(`email.delivered: email_id=${emailId}`)
-  return { action: 'logged', emailId }
+
+  try {
+    await supabaseAdmin
+      .from('outbound_messages')
+      .update({ status: 'delivered', delivered_at: new Date().toISOString() })
+      .eq('provider_message_id', emailId)
+
+    console.log(`email.delivered: email_id=${emailId}`)
+    return { action: 'logged', emailId }
+  } catch (e: any) {
+    return { action: 'error', error: e?.message, emailId }
+  }
 }
 
 // ─── email.bounced ────────────────────────────────────────────────────────────
@@ -219,15 +266,25 @@ async function handleEmailBounced(data: any): Promise<Record<string, any>> {
   console.log(`email.bounced: ${bounceEmail} — marking invalid`)
 
   try {
-    const { error } = await supabase
-      .from('agent_conversations')
-      .insert({
-        action_id: `bounce-${Date.now()}`,
-        role: 'agent_decision',
-        text: `Email bounced for ${bounceEmail}. This address appears to be invalid.`,
-        member_email: bounceEmail,
-      })
-    if (error) console.log('email.bounced insert error:', error.message)
+    // Update outbound_messages
+    const emailId = data.email_id
+    if (emailId) {
+      await supabaseAdmin
+        .from('outbound_messages')
+        .update({ status: 'bounced', failed_reason: 'bounced' })
+        .eq('provider_message_id', emailId)
+    }
+
+    // Add to opt-outs
+    await supabaseAdmin
+      .from('communication_optouts')
+      .upsert({
+        account_id: '00000000-0000-0000-0000-000000000000',
+        channel: 'email',
+        contact: bounceEmail,
+        reason: 'bounced',
+      }, { onConflict: 'gym_id,channel,contact' })
+
     return { action: 'logged_bounce', email: bounceEmail }
   } catch (e: any) {
     return { action: 'error', error: e?.message, email: bounceEmail }
@@ -244,47 +301,17 @@ async function handleEmailComplained(data: any): Promise<Record<string, any>> {
   console.log(`email.complained: ${complainEmail} — marking unsubscribed`)
 
   try {
-    await supabase
-      .from('agent_conversations')
-      .insert({
-        action_id: `complaint-${Date.now()}`,
-        role: 'agent_decision',
-        text: `Spam complaint received from ${complainEmail}. Member has been unsubscribed.`,
-        member_email: complainEmail,
-      })
+    await supabaseAdmin
+      .from('communication_optouts')
+      .upsert({
+        account_id: '00000000-0000-0000-0000-000000000000',
+        channel: 'email',
+        contact: complainEmail,
+        reason: 'spam_complaint',
+      }, { onConflict: 'gym_id,channel,contact' })
+
     return { action: 'logged_complaint', email: complainEmail }
   } catch (e: any) {
     return { action: 'error', error: e?.message, email: complainEmail }
   }
-}
-
-// ─── helpers ──────────────────────────────────────────────────────────────────
-
-function stripQuotedReply(text: string): string {
-  if (!text) return ''
-
-  // Remove HTML tags
-  let t = text.replace(/<[^>]+>/g, ' ')
-
-  // Cut at common quoted-reply markers (inline, not just line-start)
-  const cutPatterns = [
-    /\s+On .{5,100}wrote:/,        // Gmail: "On Mon, Feb 22... wrote:"
-    /\s+-----Original Message-----/,
-    /\s+From:.*@.*\n/,
-    /\s+[-]{3,}\s*Forwarded/,
-  ]
-  for (const pat of cutPatterns) {
-    const match = t.search(pat)
-    if (match > 0) {
-      t = t.slice(0, match)
-      break
-    }
-  }
-
-  // Also strip line-quoted lines (lines starting with >)
-  const lines = t.split('\n')
-  const cutoff = lines.findIndex(line => /^\s*>/.test(line))
-  const clean = cutoff > 0 ? lines.slice(0, cutoff) : lines
-
-  return clean.join('\n').replace(/\s+/g, ' ').trim()
 }

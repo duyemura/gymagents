@@ -1,8 +1,10 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import Anthropic from '@anthropic-ai/sdk'
+import { SONNET } from '@/lib/models'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
 export interface ParsedAgentConfig {
   name: string
@@ -43,6 +45,7 @@ PushPress webhook events:
 You MUST output valid JSON only — no markdown, no explanation outside the JSON.`
 
 export async function POST(req: NextRequest) {
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -78,7 +81,7 @@ Rules:
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-5',
+      model: SONNET,
       max_tokens: 1500,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userPrompt }]

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
@@ -22,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   // Find gym by gmail address
   const { data: gmailRecord } = await supabaseAdmin
-    .from('gym_gmail')
+    .from('account_gmail')
     .select('gym_id, access_token, refresh_token, token_expiry, pubsub_history_id, gmail_address')
     .eq('gmail_address', emailAddress)
     .single()
@@ -35,12 +37,12 @@ export async function POST(req: NextRequest) {
 
   // Update pubsub_history_id so we only fetch new messages next time
   await supabaseAdmin
-    .from('gym_gmail')
+    .from('account_gmail')
     .update({
       pubsub_history_id: historyId,
       updated_at: new Date().toISOString(),
     })
-    .eq('gym_id', gmailRecord.gym_id)
+    .eq('account_id', gmailRecord.gym_id)
 
   console.log(`Gmail push: ${emailAddress}, historyId: ${historyId}`)
 

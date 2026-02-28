@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontFamily: 'Helvetica-Bold',
   },
-  gymName: {
+  accountName: {
     fontSize: 20,
     fontFamily: 'Helvetica-Bold',
     color: '#111827',
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
 })
 
 interface ReportProps {
-  gymName: string
+  accountName: string
   month: string
   stats: {
     agentRuns: number
@@ -191,7 +191,7 @@ interface ReportProps {
   }>
 }
 
-export function RetentionReportPDF({ gymName, month, stats, actions }: ReportProps) {
+export function RetentionReportPDF({ accountName, month, stats, actions }: ReportProps) {
   return (
     <Document>
       <Page size="A4" style={styles.page}>
@@ -211,7 +211,7 @@ export function RetentionReportPDF({ gymName, month, stats, actions }: ReportPro
         </View>
 
         {/* Gym name */}
-        <Text style={styles.gymName}>{gymName}</Text>
+        <Text style={styles.accountName}>{accountName}</Text>
         <Text style={styles.gymSub}>AI-powered member retention summary</Text>
 
         {/* Stats */}
@@ -260,7 +260,7 @@ export function RetentionReportPDF({ gymName, month, stats, actions }: ReportPro
         {/* Footer */}
         <View style={styles.footer} fixed>
           <Text style={styles.footerText}>GymAgents — Powered by PushPress</Text>
-          <Text style={styles.footerText}>{gymName} · {month}</Text>
+          <Text style={styles.footerText}>{accountName} · {month}</Text>
         </View>
       </Page>
     </Document>

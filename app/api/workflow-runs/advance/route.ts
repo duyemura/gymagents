@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { advanceRun } from '@/lib/workflow-runner'
+export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin as supabase } from '@/lib/supabase'
+import { advanceRun } from '@/lib/workflow-runner'
 
 /**
  * POST /api/workflow-runs/advance

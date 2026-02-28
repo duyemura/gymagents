@@ -40,8 +40,13 @@ export interface AtRiskMember {
 }
 
 export async function getAtRiskMembers(client: ReturnType<typeof createPushPressClient>, companyId: string): Promise<AtRiskMember[]> {
+  // Demo mode: return sample data immediately — never call real API
+  if (process.env.DEMO_MODE === 'true') {
+    return getSampleAtRiskMembers()
+  }
+
   try {
-    // Try to fetch customers/members
+    // Fetch customers/members from PushPress
     let members: any[] = []
     try {
       const response = await client.fetch(`/customers?limit=100`)
@@ -52,13 +57,14 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
         response?.resultArray ??
         (Array.isArray(response) ? response : [])
       if (!Array.isArray(members)) members = []
-    } catch (e) {
+    } catch (e: any) {
+      console.error('[pushpress] /customers fetch failed:', e?.message)
       members = []
     }
 
     if (members.length === 0) {
-      // Return sample data for demo purposes
-      return getSampleAtRiskMembers()
+      console.warn('[pushpress] getAtRiskMembers: no members returned from API')
+      return []
     }
 
     const now = new Date()
@@ -117,18 +123,18 @@ export async function getAtRiskMembers(client: ReturnType<typeof createPushPress
     }
 
     if (atRiskMembers.length === 0) {
-      return getSampleAtRiskMembers()
+      return []
     }
 
     return atRiskMembers.sort((a, b) => b.riskScore - a.riskScore).slice(0, 20)
   } catch (error) {
-    console.error('Error fetching at-risk members:', error)
-    return getSampleAtRiskMembers()
+    console.error('[pushpress] getAtRiskMembers error:', error)
+    return []
   }
 }
 
 export async function getMemberStats(client: ReturnType<typeof createPushPressClient>, companyId: string) {
-  let gymName = 'Your Gym'
+  let accountName = 'Your Gym'
   let resolvedCompanyId = companyId || ''
   let totalMembers = 0
 
@@ -139,9 +145,9 @@ export async function getMemberStats(client: ReturnType<typeof createPushPressCl
 
     // The API might return { data: { ... } } or the Company object directly
     const companyObj = company?.data ?? company
-    if (companyObj?.name) gymName = companyObj.name
+    if (companyObj?.name) accountName = companyObj.name
     if (companyObj?.id) resolvedCompanyId = companyObj.id
-    console.log('[pushpress] /company parsed → name:', gymName, 'id:', resolvedCompanyId)
+    console.log('[pushpress] /company parsed → name:', accountName, 'id:', resolvedCompanyId)
   } catch (err: any) {
     console.error('[pushpress] /company failed:', err.message)
   }
@@ -173,7 +179,7 @@ export async function getMemberStats(client: ReturnType<typeof createPushPressCl
   }
 
   // ── Step 3: If we got a companyId from customers but no gym name, retry /company ─
-  if (gymName === 'Your Gym' && resolvedCompanyId) {
+  if (accountName === 'Your Gym' && resolvedCompanyId) {
     try {
       console.log('[pushpress] Retrying /company with company-id header:', resolvedCompanyId)
       const url = `${PUSHPRESS_BASE_URL}/company`
@@ -188,7 +194,7 @@ export async function getMemberStats(client: ReturnType<typeof createPushPressCl
         const company = await res.json()
         console.log('[pushpress] /company retry response:', JSON.stringify(company).slice(0, 800))
         const companyObj = company?.data ?? company
-        if (companyObj?.name) gymName = companyObj.name
+        if (companyObj?.name) accountName = companyObj.name
         if (companyObj?.id) resolvedCompanyId = companyObj.id
       } else {
         console.error('[pushpress] /company retry failed:', res.status, await res.text().catch(() => ''))
@@ -198,8 +204,8 @@ export async function getMemberStats(client: ReturnType<typeof createPushPressCl
     }
   }
 
-  console.log('[pushpress] getMemberStats final →', { gymName, resolvedCompanyId, totalMembers })
-  return { totalMembers, gymName, companyId: resolvedCompanyId }
+  console.log('[pushpress] getMemberStats final →', { accountName, resolvedCompanyId, totalMembers })
+  return { totalMembers, accountName, companyId: resolvedCompanyId }
 }
 
 function getLastCheckinDate(checkins: any[]): Date | null {

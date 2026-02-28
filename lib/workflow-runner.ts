@@ -4,16 +4,20 @@
  * Each workflow_run tracks one member's progress toward a goal.
  */
 
-import { createClient } from '@supabase/supabase-js'
 import Anthropic from '@anthropic-ai/sdk'
 import { sendEmail } from './resend'
+import { HAIKU } from './models'
+import { createTask, appendConversation } from './db/tasks'
+import { supabaseAdmin as supabase } from './supabase'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+// Lazy singleton — avoids module-level init crashing Next.js build
+let _anthropic: Anthropic | null = null
+const anthropic = new Proxy({} as Anthropic, {
+  get(_, prop) {
+    if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+    return (_anthropic as any)[prop]
+  },
+})
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -28,7 +32,7 @@ export interface WorkflowStep {
 
 export interface Workflow {
   id: string
-  gym_id: string | null
+  account_id: string | null
   name: string
   goal: string
   steps: WorkflowStep[]
@@ -38,7 +42,7 @@ export interface Workflow {
 export interface WorkflowRun {
   id: string
   workflow_id: string
-  gym_id: string
+  account_id: string
   member_id: string
   member_email: string
   member_name: string
@@ -54,14 +58,14 @@ export interface WorkflowRun {
 
 export async function startWorkflowRun({
   workflowId,
-  gymId,
+  accountId,
   memberId,
   memberEmail,
   memberName,
   initialContext = {},
 }: {
   workflowId: string
-  gymId: string
+  accountId: string
   memberId: string
   memberEmail: string
   memberName: string
@@ -82,7 +86,7 @@ export async function startWorkflowRun({
     .from('workflow_runs')
     .insert({
       workflow_id: workflowId,
-      gym_id: gymId,
+      account_id: accountId,
       member_id: memberId,
       member_email: memberEmail,
       member_name: memberName,
@@ -93,7 +97,7 @@ export async function startWorkflowRun({
         ...initialContext,
         memberName,
         memberEmail,
-        gymId,
+        accountId,
       },
     })
     .select()
@@ -151,85 +155,72 @@ export async function executeStep(
 
 async function executeOutreach(run: WorkflowRun, step: WorkflowStep, workflow: Workflow) {
   const cfg = step.config
-  const gymName = run.context.gymName ?? 'the gym'
+  const accountName = run.context.accountName ?? 'the gym'
 
   // Draft message with Claude
   const draft = await draftOutreachMessage({
     goal: run.goal,
     memberName: run.member_name,
-    gymName,
+    accountName,
     stepPrompt: cfg.prompt_override,
     playbookGoal: cfg.playbook_goal,
     context: run.context,
     history: run.context.history ?? [],
   })
 
-  const replyToken = `wf${run.id.replace(/-/g, '').slice(0, 16)}_${step.id}`
+  // Create agent_task for tracking and reply routing
+  const task = await createTask({
+    accountId: run.gym_id,
+    assignedAgent: 'retention',
+    taskType: 'churn_risk',
+    memberEmail: run.member_email,
+    memberName: run.member_name,
+    goal: run.goal,
+    context: {
+      source: 'workflow',
+      workflowRunId: run.id,
+      workflowStepId: step.id,
+      draftedMessage: draft.body,
+      messageSubject: draft.subject,
+      onReplyPositive: cfg.on_reply_positive ?? null,
+      onReplyNegative: cfg.on_reply_negative ?? null,
+      onNoReply: cfg.on_no_reply ?? null,
+      replyTimeoutDays: cfg.reply_timeout_days ?? 5,
+    },
+    requiresApproval: false,
+  })
 
-  // Send email
+  // Send email with task UUID as reply token
   const { error } = await sendEmail({
     to: run.member_email,
     subject: draft.subject,
     body: draft.body,
-    replyTo: `reply+${replyToken}@lunovoria.resend.app`,
-    gymName,
+    replyTo: `reply+${task.id}@lunovoria.resend.app`,
+    accountName,
   })
 
   if (error) throw new Error(`Email send failed: ${error}`)
 
-  // Create agent_action row for reply tracking
-  const { data: action } = await supabase
-    .from('agent_actions')
-    .insert({
-      action_type: 'workflow_outreach',
-      content: {
-        memberId: run.member_id,
-        memberName: run.member_name,
-        memberEmail: run.member_email,
-        draftedMessage: draft.body,
-        messageSubject: draft.subject,
-        recommendedAction: run.goal,
-        riskLevel: 'medium',
-        _workflowRunId: run.id,
-        _workflowStepId: step.id,
-        _replyToken: replyToken,
-        _gymId: run.gym_id,
-        _gymName: gymName,
-        _automationLevel: 'full_auto',
-        _onReplyPositive: cfg.on_reply_positive ?? null,
-        _onReplyNegative: cfg.on_reply_negative ?? null,
-        _onNoReply: cfg.on_no_reply ?? null,
-        _replyTimeoutDays: cfg.reply_timeout_days ?? 5,
-      },
-      pending_reply: true,
-    })
-    .select()
-    .single()
+  // Seed outbound conversation
+  await appendConversation(task.id, {
+    accountId: run.gym_id,
+    role: 'agent',
+    content: draft.body,
+    agentName: 'retention',
+  })
 
-  // Seed conversation row
-  if (action) {
-    await supabase.from('agent_conversations').insert({
-      action_id: replyToken,
-      gym_id: run.gym_id,
-      role: 'outbound',
-      text: draft.body,
-      member_email: run.member_email,
-      member_name: run.member_name,
-    })
-
-    // Link action to run
-    await supabase
-      .from('workflow_runs')
-      .update({ action_id: action.id, status: 'active', current_step: step.id })
-      .eq('id', run.id)
-  }
+  // Link task to workflow run
+  await supabase
+    .from('workflow_runs')
+    .update({ action_id: task.id, status: 'active', current_step: step.id })
+    .eq('id', run.id)
 
   if (cfg.wait_for_reply) {
     // Pause here — reply webhook will advance the workflow
-    await logEvent(run.id, step.id, 'outreach_sent', { replyToken, waitingForReply: true })
+    await logEvent(run.id, step.id, 'outreach_sent', { taskId: task.id, waitingForReply: true })
   } else {
     // Auto-advance to next step
-    await logEvent(run.id, step.id, 'outreach_sent', { replyToken, waitingForReply: false })
+    await logEvent(run.id, step.id, 'outreach_sent', { taskId: task.id, waitingForReply: false })
     if (cfg.on_sent) await advanceRun(run, cfg.on_sent, workflow)
   }
 }
@@ -261,7 +252,7 @@ async function executeBranch(run: WorkflowRun, step: WorkflowStep, workflow: Wor
   const branchList = branches.map((b, i) => `${i + 1}. ${b.label} → ${b.next}`).join('\n')
 
   const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5',
+    model: HAIKU,
     max_tokens: 200,
     system: 'You are a workflow decision engine. Pick the best branch based on context. Respond with ONLY the next step ID, nothing else.',
     messages: [{
@@ -291,7 +282,7 @@ async function executeIntegration(run: WorkflowRun, step: WorkflowStep, workflow
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workflowRunId: run.id,
-          gymId: run.gym_id,
+          accountId: run.gym_id,
           memberId: run.member_id,
           memberEmail: run.member_email,
           memberName: run.member_name,
@@ -325,24 +316,21 @@ async function executeInternalTask(run: WorkflowRun, step: WorkflowStep) {
   const cfg = step.config
   const title = interpolate(cfg.title ?? 'Task', run)
 
-  // Create an agent_action row so it surfaces in the dashboard
-  await supabase.from('agent_actions').insert({
-    action_type: 'workflow_task',
-    content: {
-      memberId: run.member_id,
-      memberName: run.member_name,
-      memberEmail: run.member_email,
-      actionKind: 'internal_task',
-      draftedMessage: title,
-      messageSubject: title,
-      recommendedAction: title,
-      riskLevel: 'medium',
-      _workflowRunId: run.id,
-      _workflowStepId: step.id,
-      _onDone: cfg.on_done,
+  // Create an agent_task so it surfaces in the dashboard
+  await createTask({
+    accountId: run.gym_id,
+    assignedAgent: 'gm',
+    taskType: 'ad_hoc',
+    memberEmail: run.member_email,
+    memberName: run.member_name,
+    goal: title,
+    context: {
+      source: 'workflow',
+      workflowRunId: run.id,
+      workflowStepId: step.id,
+      onDone: cfg.on_done,
     },
-    needs_review: true,
-    review_reason: 'Workflow task requires owner action',
+    requiresApproval: true,
   })
 
   await logEvent(run.id, step.id, 'task_created', { title })
@@ -444,7 +432,7 @@ export async function handleWorkflowReply({
 
 // ─── Cron: advance paused/timed-out runs ──────────────────────────────────────
 
-export async function tickWorkflows(gymId?: string): Promise<void> {
+export async function tickWorkflows(accountId?: string): Promise<void> {
   const now = new Date().toISOString()
 
   // Resume paused runs whose wait has elapsed
@@ -453,7 +441,7 @@ export async function tickWorkflows(gymId?: string): Promise<void> {
     .select('*, workflows(*)')
     .eq('status', 'paused')
 
-  if (gymId) pausedQuery.eq('gym_id', gymId)
+  if (accountId) pausedQuery.eq('account_id', accountId)
 
   const { data: pausedRuns } = await pausedQuery
 
@@ -503,15 +491,15 @@ function interpolate(template: string, run: WorkflowRun): string {
     .replace(/\{memberName\}/g, run.member_name)
     .replace(/\{memberEmail\}/g, run.member_email)
     .replace(/\{goal\}/g, run.goal)
-    .replace(/\{gymId\}/g, run.gym_id)
+    .replace(/\{accountId\}/g, run.gym_id)
 }
 
 async function draftOutreachMessage({
-  goal, memberName, gymName, stepPrompt, playbookGoal, context, history,
+  goal, memberName, accountName, stepPrompt, playbookGoal, context, history,
 }: {
   goal: string
   memberName: string
-  gymName: string
+  accountName: string
   stepPrompt?: string
   playbookGoal?: string
   context: Record<string, any>
@@ -524,9 +512,9 @@ async function draftOutreachMessage({
   const prompt = stepPrompt ?? `Write a warm, personal message to ${memberName} as part of this goal: ${goal}. ${playbookGoal ?? ''}`
 
   const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5',
+    model: HAIKU,
     max_tokens: 600,
-    system: `You are a retention agent for ${gymName}. Write short, warm, personal messages. Never sound like a template. Always use first name. 3-4 sentences max.`,
+    system: `You are a retention agent for ${accountName}. Write short, warm, personal messages. Never sound like a template. Always use first name. 3-4 sentences max.`,
     messages: [{
       role: 'user',
       content: `${prompt}${historyText}\n\nRespond with JSON: { "subject": "...", "body": "..." }`

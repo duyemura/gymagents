@@ -1,8 +1,65 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+
+// ── Memory types ────────────────────────────────────────────────────────────
+type MemoryCategory = 'preference' | 'member_fact' | 'gym_context' | 'learned_pattern'
+
+interface AccountMemory {
+  id: string
+  category: MemoryCategory
+  content: string
+  importance: number
+  scope: string
+  source: string
+  member_id: string | null
+  created_at: string
+}
+
+const CATEGORY_LABELS: Record<MemoryCategory, string> = {
+  preference: 'Preference',
+  member_fact: 'Member Fact',
+  gym_context: 'Gym Context',
+  learned_pattern: 'Learned Pattern',
+}
+
+const CATEGORY_COLORS: Record<MemoryCategory, { color: string; bg: string }> = {
+  preference: { color: '#0063FF', bg: 'rgba(0,99,255,0.08)' },
+  gym_context: { color: '#16A34A', bg: 'rgba(22,163,74,0.08)' },
+  member_fact: { color: '#7C3AED', bg: 'rgba(124,58,237,0.08)' },
+  learned_pattern: { color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
+}
+
+function ImportanceDots({ level, size = 'sm' }: { level: number; size?: 'sm' | 'md' }) {
+  const dotSize = size === 'sm' ? 'w-1.5 h-1.5' : 'w-2 h-2'
+  return (
+    <span className="inline-flex gap-0.5 items-center">
+      {[1, 2, 3, 4, 5].map(i => (
+        <span
+          key={i}
+          className={`${dotSize} rounded-full`}
+          style={{ backgroundColor: i <= level ? '#111827' : '#D1D5DB' }}
+        />
+      ))}
+    </span>
+  )
+}
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diff = now - then
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
 
 // Separate component so useSearchParams() is inside a Suspense boundary
 function GmailBannerFromParams({ onBanner }: { onBanner: (msg: string) => void }) {
@@ -29,9 +86,125 @@ export default function SettingsPage() {
   const [gmailConnected, setGmailConnected] = useState<string | null>(null)
   const [gmailBanner, setGmailBanner] = useState<string | null>(null)
 
+  // Autopilot state
+  const [autopilotLevel, setAutopilotLevel] = useState<'draft_only' | 'smart' | 'full_auto'>('draft_only')
+  const [autopilotLoading, setAutopilotLoading] = useState(true)
+  const [autopilotSaving, setAutopilotSaving] = useState(false)
+  const [shadowModeUntil, setShadowModeUntil] = useState<string | null>(null)
+  const [shadowModeActive, setShadowModeActive] = useState(false)
+
+  // Memory state
+  const [memories, setMemories] = useState<AccountMemory[]>([])
+  const [memoriesLoading, setMemoriesLoading] = useState(true)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [newMemory, setNewMemory] = useState({
+    content: '',
+    category: 'preference' as MemoryCategory,
+    importance: 3,
+    pinToContext: false,
+  })
+  const [addingMemory, setAddingMemory] = useState(false)
+  const [memorySearch, setMemorySearch] = useState('')
+
+  const fetchAutopilot = useCallback(async () => {
+    try {
+      const res = await fetch('/api/settings/autopilot')
+      if (res.ok) {
+        const json = await res.json()
+        setAutopilotLevel(json.autopilotLevel ?? 'draft_only')
+        setShadowModeUntil(json.shadowModeUntil ?? null)
+        setShadowModeActive(json.shadowModeActive ?? false)
+      }
+    } catch {
+      // ignore
+    } finally {
+      setAutopilotLoading(false)
+    }
+  }, [])
+
+  const handleAutopilotChange = async (level: 'draft_only' | 'smart' | 'full_auto') => {
+    if (level === autopilotLevel) return
+    setAutopilotSaving(true)
+    try {
+      const res = await fetch('/api/settings/autopilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level }),
+      })
+      if (res.ok) {
+        const json = await res.json()
+        setAutopilotLevel(json.autopilotLevel ?? level)
+        // Re-fetch to get updated shadow mode
+        await fetchAutopilot()
+      }
+    } catch {
+      // ignore
+    } finally {
+      setAutopilotSaving(false)
+    }
+  }
+
+  const fetchMemories = useCallback(async () => {
+    try {
+      const res = await fetch('/api/memories')
+      if (res.ok) {
+        const json = await res.json()
+        setMemories(json.memories ?? [])
+      }
+    } catch {
+      // ignore
+    } finally {
+      setMemoriesLoading(false)
+    }
+  }, [])
+
+  const handleAddMemory = async () => {
+    if (!newMemory.content.trim()) return
+    setAddingMemory(true)
+    try {
+      const res = await fetch('/api/memories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: newMemory.content.trim(),
+          category: newMemory.category,
+          importance: newMemory.pinToContext ? 5 : newMemory.importance,
+        }),
+      })
+      if (res.ok) {
+        setNewMemory({ content: '', category: 'preference', importance: 3, pinToContext: false })
+        setShowAddModal(false)
+        await fetchMemories()
+      }
+    } catch {
+      // ignore
+    } finally {
+      setAddingMemory(false)
+    }
+  }
+
+  const handleDeleteMemory = async (id: string) => {
+    try {
+      await fetch('/api/memories', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      setMemories(prev => prev.filter(m => m.id !== id))
+    } catch {
+      // ignore
+    }
+  }
+
+  const filteredMemories = memorySearch
+    ? memories.filter(m => m.content.toLowerCase().includes(memorySearch.toLowerCase()))
+    : memories
+
   useEffect(() => {
     fetchData()
     fetchGmailStatus()
+    fetchAutopilot()
+    fetchMemories()
   }, [])
 
   const fetchData = async () => {
@@ -192,6 +365,115 @@ export default function SettingsPage() {
           )}
         </div>
 
+        {/* Autopilot Mode */}
+        <div className="bg-white border border-gray-200 p-6">
+          <div className="mb-4">
+            <h2 className="font-bold text-gray-900">Autopilot Mode</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Control how much the agent does on its own.
+            </p>
+          </div>
+
+          {autopilotLoading ? (
+            <div className="animate-pulse space-y-3">
+              {[1, 2, 3].map(i => <div key={i} className="bg-gray-100 h-16" />)}
+            </div>
+          ) : isDemo ? (
+            <div className="text-sm text-gray-400">Connect your gym to configure autopilot.</div>
+          ) : (
+            <div className="space-y-2">
+              {([
+                {
+                  level: 'draft_only' as const,
+                  label: 'Draft Only',
+                  description: 'Agent drafts messages. You review and send every one.',
+                  detail: 'Best for getting started — see exactly what the agent writes before anything goes out.',
+                },
+                {
+                  level: 'smart' as const,
+                  label: 'Smart Send',
+                  description: 'Routine messages send automatically. Edge cases queue for your review.',
+                  detail: 'High-confidence outreach goes out instantly. Escalations and unusual cases still need your approval.',
+                },
+                {
+                  level: 'full_auto' as const,
+                  label: 'Full Auto',
+                  description: 'Agent handles everything. You see results in the dashboard.',
+                  detail: 'Only escalations (billing issues, complaints, injuries) surface for your review. Everything else runs.',
+                },
+              ]).map(option => {
+                const isActive = autopilotLevel === option.level
+                return (
+                  <button
+                    key={option.level}
+                    onClick={() => handleAutopilotChange(option.level)}
+                    disabled={autopilotSaving}
+                    className="w-full text-left p-4 border transition-colors group"
+                    style={{
+                      borderColor: isActive ? '#0063FF' : '#E5E7EB',
+                      backgroundColor: isActive ? 'rgba(0,99,255,0.03)' : 'white',
+                    }}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900">{option.label}</span>
+                          {isActive && (
+                            <span
+                              className="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5"
+                              style={{ color: '#0063FF', backgroundColor: 'rgba(0,99,255,0.08)' }}
+                            >
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">{option.description}</p>
+                        {isActive && (
+                          <p className="text-xs text-gray-400 mt-1">{option.detail}</p>
+                        )}
+                      </div>
+                      {/* Radio indicator */}
+                      <div
+                        className="w-4 h-4 rounded-full border-2 flex-shrink-0 mt-0.5 flex items-center justify-center"
+                        style={{ borderColor: isActive ? '#0063FF' : '#D1D5DB' }}
+                      >
+                        {isActive && (
+                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#0063FF' }} />
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+
+              {/* Shadow mode notice */}
+              {shadowModeActive && shadowModeUntil && (
+                <div className="mt-3 px-4 py-3 border" style={{ borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.05)' }}>
+                  <div className="flex items-start gap-2">
+                    <span className="text-xs mt-0.5" style={{ color: '#F59E0B' }}>&#9679;</span>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-900">Shadow Mode Active</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        For the first 7 days, the agent logs what it <em>would</em> send without actually sending.
+                        You'll see "would have sent" cards in your dashboard to build confidence.
+                      </p>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        Ends {new Date(shadowModeUntil).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Safety note */}
+              <p className="text-[10px] text-gray-300 mt-2 px-1">
+                Escalations (billing, complaints, injuries) always require your review regardless of mode.
+                Daily send limit: 10 messages per day.
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Gmail Integration */}
         <div className="bg-white border border-gray-200 p-6">
           <h2 className="font-bold text-gray-900 mb-4">Integrations</h2>
@@ -240,6 +522,241 @@ export default function SettingsPage() {
           )}
         </div>
 
+        {/* Agent Memories */}
+        <div className="bg-white border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-bold text-gray-900">Memory Bank</h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {memories.length} {memories.length === 1 ? 'memory' : 'memories'} stored
+              </p>
+            </div>
+            {!isDemo && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="text-xs font-semibold text-white px-4 py-1.5 hover:opacity-80 transition-opacity"
+                style={{ backgroundColor: '#0063FF' }}
+              >
+                + Add Memory
+              </button>
+            )}
+          </div>
+
+          {/* Search */}
+          {memories.length > 3 && (
+            <div className="mb-4">
+              <input
+                type="text"
+                value={memorySearch}
+                onChange={e => setMemorySearch(e.target.value)}
+                placeholder="Search memories..."
+                className="w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
+              />
+            </div>
+          )}
+
+          {/* Memory cards */}
+          {memoriesLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="animate-pulse bg-gray-100 h-20" />
+              ))}
+            </div>
+          ) : filteredMemories.length === 0 && memories.length === 0 ? (
+            <div className="text-center py-8 border border-dashed border-gray-200">
+              <p className="text-sm text-gray-400">No memories yet.</p>
+              <p className="text-xs text-gray-300 mt-1">Tell your agents what to remember — they'll use it in every conversation.</p>
+              {!isDemo && (
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="mt-3 text-xs font-semibold px-3 py-1.5 border transition-colors hover:opacity-80"
+                  style={{ borderColor: '#0063FF', color: '#0063FF' }}
+                >
+                  + Add your first memory
+                </button>
+              )}
+            </div>
+          ) : filteredMemories.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">No memories match "{memorySearch}"</p>
+          ) : (
+            <div className="space-y-2">
+              {filteredMemories.map(memory => (
+                <div key={memory.id} className="border border-gray-100 p-4 group hover:border-gray-200 transition-colors">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      {/* Category + source badges */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span
+                          className="text-[10px] font-semibold tracking-wide uppercase px-2 py-0.5"
+                          style={{
+                            color: CATEGORY_COLORS[memory.category]?.color ?? '#6B7280',
+                            backgroundColor: CATEGORY_COLORS[memory.category]?.bg ?? '#F3F4F6',
+                          }}
+                        >
+                          {CATEGORY_LABELS[memory.category] ?? memory.category}
+                        </span>
+                        {memory.source === 'agent' && (
+                          <span className="text-[10px] font-medium px-2 py-0.5" style={{ color: '#6B7280', backgroundColor: '#F3F4F6' }}>
+                            Agent-learned
+                          </span>
+                        )}
+                        {memory.source === 'system' && (
+                          <span className="text-[10px] font-medium px-2 py-0.5" style={{ color: '#6B7280', backgroundColor: '#F3F4F6' }}>
+                            System
+                          </span>
+                        )}
+                        {memory.importance >= 5 && (
+                          <span className="text-[10px] font-medium px-2 py-0.5" style={{ color: '#0063FF', backgroundColor: 'rgba(0,99,255,0.08)' }}>
+                            Pinned
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Content */}
+                      <p className="text-sm text-gray-900">{memory.content}</p>
+
+                      {/* Meta row */}
+                      <div className="flex items-center gap-3 mt-2">
+                        <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                          <span className="text-[10px] text-gray-400">Importance:</span>
+                          <ImportanceDots level={memory.importance} />
+                        </span>
+                        <span className="text-[10px] text-gray-300">{relativeTime(memory.created_at)}</span>
+                        {memory.member_id && (
+                          <span className="text-[10px] text-gray-300">Member: {memory.member_id.slice(0, 8)}...</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Delete */}
+                    {!isDemo && (
+                      <button
+                        onClick={() => handleDeleteMemory(memory.id)}
+                        className="text-xs text-gray-300 hover:text-red-500 transition-colors ml-3 opacity-0 group-hover:opacity-100 flex-shrink-0"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Add Memory Modal */}
+        {showAddModal && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
+            <div className="bg-white border border-gray-200 w-full max-w-md p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-gray-900">Add Memory</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Tell your agent something to remember.</p>
+                </div>
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="text-gray-400 hover:text-gray-700 transition-colors text-lg"
+                >
+                  &times;
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-1.5">Memory Content</p>
+                  <textarea
+                    value={newMemory.content}
+                    onChange={e => setNewMemory(prev => ({ ...prev, content: e.target.value }))}
+                    placeholder="e.g. Always sign off as Coach Dan"
+                    rows={3}
+                    className="w-full text-sm border border-gray-200 bg-white px-3 py-2 resize-y focus:outline-none focus:border-blue-400 transition-colors"
+                  />
+                </div>
+
+                {/* Category + Importance row */}
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-1.5">Category</p>
+                    <select
+                      value={newMemory.category}
+                      onChange={e => setNewMemory(prev => ({ ...prev, category: e.target.value as MemoryCategory }))}
+                      className="w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
+                    >
+                      <option value="preference">Preference</option>
+                      <option value="gym_context">Gym Context</option>
+                      <option value="member_fact">Member Fact</option>
+                      <option value="learned_pattern">Pattern</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Importance selector with context labels */}
+                <div>
+                  <p className="text-[10px] font-semibold tracking-widest text-gray-400 uppercase mb-2">Importance</p>
+                  <div className="space-y-1">
+                    {([
+                      { level: 1, label: 'Low', hint: 'Background context — used only when highly relevant' },
+                      { level: 2, label: 'Minor', hint: 'Considered when the topic comes up' },
+                      { level: 3, label: 'Normal', hint: 'Included when the agent works on matching tasks' },
+                      { level: 4, label: 'High', hint: 'Always included in the agent\'s context' },
+                      { level: 5, label: 'Critical', hint: 'Pinned — never omitted from any conversation' },
+                    ] as const).map(option => {
+                      const isSelected = newMemory.importance === option.level
+                      return (
+                        <button
+                          key={option.level}
+                          onClick={() => setNewMemory(prev => ({
+                            ...prev,
+                            importance: option.level,
+                            pinToContext: option.level >= 5,
+                          }))}
+                          className="w-full text-left flex items-center gap-3 px-3 py-2 border transition-colors"
+                          style={{
+                            borderColor: isSelected ? '#0063FF' : '#E5E7EB',
+                            backgroundColor: isSelected ? 'rgba(0,99,255,0.03)' : 'white',
+                          }}
+                        >
+                          <ImportanceDots level={option.level} />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-medium text-gray-900">{option.label}</span>
+                            {isSelected && (
+                              <span className="text-[10px] text-gray-400 ml-2">{option.hint}</span>
+                            )}
+                          </div>
+                          {option.level >= 5 && isSelected && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5" style={{ color: '#0063FF', backgroundColor: 'rgba(0,99,255,0.08)' }}>
+                              PINNED
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => setShowAddModal(false)}
+                    className="text-xs text-gray-400 hover:text-gray-700 transition-colors px-4 py-2"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddMemory}
+                    disabled={addingMemory || !newMemory.content.trim()}
+                    className="text-xs font-semibold text-white px-5 py-2 hover:opacity-80 transition-opacity disabled:opacity-50"
+                    style={{ backgroundColor: '#0063FF' }}
+                  >
+                    {addingMemory ? 'Adding...' : 'Add Memory'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Gym connection */}
         <div className="bg-white  border border-gray-200 p-6">
           <h2 className="font-bold text-gray-900 mb-4">PushPress connection</h2>
@@ -252,11 +769,11 @@ export default function SettingsPage() {
               <div className="bg-gray-50  p-4 text-sm space-y-2">
                 <div className="flex justify-between">
                   <span className="text-gray-400">Gym</span>
-                  <span className="font-medium text-gray-900">{data.gym.gym_name}</span>
+                  <span className="font-medium text-gray-900">{data.account.account_name}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">Members</span>
-                  <span className="font-medium text-gray-900">{data.gym.member_count}</span>
+                  <span className="font-medium text-gray-900">{data.account.member_count}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">Connected</span>

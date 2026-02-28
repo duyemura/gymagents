@@ -1,23 +1,22 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function GET(req: NextRequest) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: gym } = await supabaseAdmin
-    .from('gyms')
-    .select('id')
-    .eq('user_id', session.id)
-    .single()
+  const account = await getAccountForUser(session.id)
 
-  if (!gym) return NextResponse.json({ connected: false, username: null })
+  if (!account) return NextResponse.json({ connected: false, username: null })
 
   const { data: record } = await supabaseAdmin
     .from('gym_instagram')
     .select('instagram_username')
-    .eq('gym_id', gym.id)
+    .eq('account_id', account.id)
     .single()
 
   return NextResponse.json({

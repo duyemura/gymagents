@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import AgentPromptBuilder from './AgentPromptBuilder'
 
 interface Agent {
   id: string
@@ -10,6 +11,7 @@ interface Agent {
   skill_type?: string
   trigger_mode?: string
   cron_schedule?: string
+  run_hour?: number
   system_prompt?: string
   action_type?: string
   last_run_at?: string | null
@@ -19,35 +21,35 @@ interface Agent {
 interface AgentEditorProps {
   agent: Agent | null   // null = create new
   isDemo: boolean
+  accountName?: string
   onBack: () => void
   onSaved: () => void
   onDeleted: () => void
 }
 
-const SKILL_TYPES = [
-  { value: 'at_risk_detector', label: 'At-Risk Monitor' },
-  { value: 'win_back', label: 'Lapsed Member Win-Back' },
-  { value: 'renewal_guard', label: 'Renewal At-Risk' },
-  { value: 'onboarding', label: 'New Member Onboarding' },
-  { value: 'lead_catcher', label: 'New Lead Response' },
-  { value: 'referral', label: 'Milestone Referral' },
-  { value: 'payment_recovery', label: 'Failed Payment Recovery' },
-]
-
 const SCHEDULE_OPTIONS = [
-  { value: 'daily', label: 'Daily (1am)' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly (Monday)' },
   { value: 'hourly', label: 'Hourly' },
   { value: 'event', label: 'On event (real-time)' },
-  { value: 'weekly', label: 'Weekly (Monday 9am)' },
 ]
 
-export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted }: AgentEditorProps) {
+// 12-hour display for hours 0–23
+function hourLabel(h: number): string {
+  if (h === 0) return '12:00 AM'
+  if (h === 12) return '12:00 PM'
+  return h < 12 ? `${h}:00 AM` : `${h - 12}:00 PM`
+}
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => ({ value: i, label: hourLabel(i) }))
+
+export default function AgentEditor({ agent, isDemo, accountName: propAccountName, onBack, onSaved, onDeleted }: AgentEditorProps) {
   const isNew = !agent
 
   const [name, setName] = useState(agent?.name ?? '')
   const [description, setDescription] = useState(agent?.description ?? '')
-  const [skillType, setSkillType] = useState(agent?.skill_type ?? 'at_risk_detector')
   const [schedule, setSchedule] = useState(agent?.cron_schedule ?? 'daily')
+  const [runHour, setRunHour] = useState(agent?.run_hour ?? 9)
   const [active, setActive] = useState(agent?.active ?? true)
   const [systemPrompt, setSystemPrompt] = useState(agent?.system_prompt ?? '')
 
@@ -56,16 +58,39 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const [autoGenerating, setAutoGenerating] = useState(false)
+
   useEffect(() => {
     if (!agent) return
     setName(agent.name ?? '')
     setDescription(agent.description ?? '')
-    setSkillType(agent.skill_type ?? 'at_risk_detector')
     setSchedule(agent.cron_schedule ?? 'daily')
+    setRunHour(agent.run_hour ?? 9)
     setActive(agent.active ?? true)
     setSystemPrompt(agent.system_prompt ?? '')
     setSaved(false)
     setError(null)
+
+    // Auto-generate instructions for existing agents with blank prompts
+    if (agent.id && !agent.system_prompt?.trim() && agent.name && agent.skill_type) {
+      setAutoGenerating(true)
+      fetch('/api/setup/generate-instructions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentType: agent.skill_type,
+          agentName: agent.name,
+          accountName: propAccountName || '',
+          description: agent.description || '',
+        }),
+      })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data?.instructions) setSystemPrompt(data.instructions)
+        })
+        .catch(() => {})
+        .finally(() => setAutoGenerating(false))
+    }
   }, [agent?.id])
 
   const handleSave = async () => {
@@ -84,18 +109,19 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     try {
       const payload = {
         name, description,
-        skill_type: skillType,
+        ...(isNew ? { skill_type: name.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '') } : {}),
         cron_schedule: schedule,
+        run_hour: runHour,
         active,
         system_prompt: systemPrompt,
       }
       const res = isNew
-        ? await fetch('/api/autopilots', {
+        ? await fetch('/api/agents', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           })
-        : await fetch(`/api/autopilots/${agent!.id}`, {
+        : await fetch(`/api/agents/${agent!.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -116,7 +142,7 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
     if (!confirm(`Delete "${agent.name}"? This cannot be undone.`)) return
     setDeleting(true)
     try {
-      await fetch(`/api/autopilots/${agent.id}`, { method: 'DELETE' })
+      await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' })
       onDeleted()
       onBack()
     } catch {
@@ -128,6 +154,7 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
 
   const fieldCls = "w-full text-sm border border-gray-200 bg-white px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
   const labelCls = "text-[10px] font-semibold tracking-widest uppercase text-gray-400 mb-1 block"
+  const showTimePicker = schedule === 'daily' || schedule === 'weekly'
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
@@ -174,45 +201,26 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
 
       <div className="flex-1 px-6 py-6 space-y-6 max-w-2xl">
 
-        {/* Name */}
-        <div>
-          <label className={labelCls}>Agent name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            className={fieldCls}
-            placeholder="e.g. At-Risk Monitor"
-          />
-        </div>
-
-        {/* Description */}
-        <div>
-          <label className={labelCls}>Description</label>
-          <textarea
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            rows={2}
-            className={fieldCls + ' resize-none'}
-            placeholder="What does this agent do?"
-          />
-        </div>
-
-        {/* Skill type + Schedule row */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelCls}>Playbook</label>
-            <select
-              value={skillType}
-              onChange={e => setSkillType(e.target.value)}
-              className={fieldCls + ' bg-white'}
-            >
-              {SKILL_TYPES.map(s => (
-                <option key={s.value} value={s.value}>{s.label}</option>
-              ))}
-            </select>
+        {/* Name + description + AI prompt (shared builder) */}
+        {autoGenerating && (
+          <div className="flex items-center gap-2 px-3 py-2 border border-blue-100" style={{ backgroundColor: '#F0F6FF' }}>
+            <span className="w-3 h-3 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#0063FF', borderTopColor: 'transparent' }} />
+            <p className="text-xs" style={{ color: '#0063FF' }}>Generating personalized instructions…</p>
           </div>
-          <div>
+        )}
+        <AgentPromptBuilder
+          name={name}
+          description={description}
+          systemPrompt={systemPrompt}
+          onNameChange={setName}
+          onDescriptionChange={setDescription}
+          onSystemPromptChange={setSystemPrompt}
+          disabled={isDemo}
+        />
+
+        {/* Schedule + time picker */}
+        <div className="flex gap-3">
+          <div className="flex-1">
             <label className={labelCls}>Schedule</label>
             <select
               value={schedule}
@@ -224,6 +232,20 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
               ))}
             </select>
           </div>
+          {showTimePicker && (
+            <div className="w-36">
+              <label className={labelCls}>Run at (UTC)</label>
+              <select
+                value={runHour}
+                onChange={e => setRunHour(Number(e.target.value))}
+                className={fieldCls + ' bg-white'}
+              >
+                {HOUR_OPTIONS.map(h => (
+                  <option key={h.value} value={h.value}>{h.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Active toggle */}
@@ -257,21 +279,6 @@ export default function AgentEditor({ agent, isDemo, onBack, onSaved, onDeleted 
               }}
             />
           </button>
-        </div>
-
-        {/* Custom instructions */}
-        <div>
-          <label className={labelCls}>
-            Custom instructions
-            <span className="text-gray-300 normal-case font-normal ml-1">(optional — overrides playbook defaults)</span>
-          </label>
-          <textarea
-            value={systemPrompt}
-            onChange={e => setSystemPrompt(e.target.value)}
-            rows={5}
-            className={fieldCls + ' resize-y font-mono text-xs leading-relaxed'}
-            placeholder="Leave blank to use the playbook's default instructions…"
-          />
         </div>
 
         {/* Stats — edit mode only */}

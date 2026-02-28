@@ -25,6 +25,36 @@ vi.mock('../commands/commandBus', () => {
   }
 })
 
+// ── Mock Resend (imported at module level in process-commands route) ──────────
+vi.mock('resend', () => {
+  return {
+    Resend: class MockResend {
+      emails = { send: vi.fn().mockResolvedValue({ id: 'mock-email-id' }) }
+    },
+  }
+})
+
+// ── Mock db/tasks (used by autopilot + follow-up sections) ───────────────────
+vi.mock('../db/tasks', () => ({
+  updateTaskStatus: vi.fn().mockResolvedValue(undefined),
+  appendConversation: vi.fn().mockResolvedValue(undefined),
+}))
+
+// ── Mock follow-up evaluator ─────────────────────────────────────────────────
+vi.mock('../follow-up-evaluator', () => ({
+  evaluateFollowUp: vi.fn().mockResolvedValue({ action: 'wait', reason: 'test', nextCheckDays: 3 }),
+}))
+
+// ── Mock sendEmail from lib/resend ───────────────────────────────────────────
+vi.mock('../resend', () => ({
+  sendEmail: vi.fn().mockResolvedValue({ id: 'mock-email-id', error: null }),
+}))
+
+// ── Mock SendEmailExecutor ───────────────────────────────────────────────────
+vi.mock('../commands/executors/sendEmailExecutor', () => ({
+  SendEmailExecutor: class MockSendEmailExecutor {},
+}))
+
 // ── Mock db/commands (real deps injected into CommandBus) ─────────────────────
 vi.mock('../db/commands', () => ({
   insertCommand: vi.fn(),
@@ -34,6 +64,14 @@ vi.mock('../db/commands', () => ({
   deadLetterCommand: vi.fn(),
   createOutboundMessage: vi.fn(),
   updateOutboundMessageStatus: vi.fn(),
+}))
+
+// ── Mock timezone (used for quiet hours check in autopilot + follow-ups) ──────
+vi.mock('../timezone', () => ({
+  getAccountTimezone: vi.fn().mockResolvedValue('America/New_York'),
+  isQuietHours: vi.fn().mockReturnValue(false), // not quiet hours in tests
+  getLocalTodayStartISO: vi.fn().mockReturnValue(new Date().toISOString()),
+  DEFAULT_TIMEZONE: 'America/New_York',
 }))
 
 // ── Import the route handler ──────────────────────────────────────────────────

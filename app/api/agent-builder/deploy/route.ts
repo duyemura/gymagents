@@ -1,7 +1,11 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import type { ParsedAgentConfig } from '../parse/route'
+import { getAccountForUser } from '@/lib/db/accounts'
+import { generateAgentInstructions } from '@/lib/agents/generate-instructions'
 
 export async function POST(req: NextRequest) {
   const session = await getSession()
@@ -14,38 +18,86 @@ export async function POST(req: NextRequest) {
   const demoSessionId = (session as any)?.demoSessionId
 
   try {
-    let gymId: string | null = null
+    let accountId: string | null = null
+    let accountName = 'Your Gym'
 
     if (!isDemo) {
       // Get gym for this user
-      const { data: gym } = await supabaseAdmin
-        .from('gyms')
-        .select('id')
-        .eq('user_id', session.id)
-        .single()
+      const account = await getAccountForUser(session.id)
 
-      if (!gym) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
-      gymId = gym.id
+      if (!account) return NextResponse.json({ error: 'No gym connected' }, { status: 400 })
+      accountId = account.id
+      accountName = (account as any).account_name || (account as any).gym_name || (account as any).name || 'Your Gym'
     }
 
-    // Create autopilot record
-    // For real gyms: skill_type must be unique per gym — dedupe with timestamp if collision
+    // Auto-generate personalized instructions if system_prompt is empty
+    if (!config.system_prompt?.trim() && config.name && config.skill_type) {
+      try {
+        config.system_prompt = await generateAgentInstructions({
+          agentName: config.name,
+          description: config.description || '',
+          skillType: config.skill_type,
+          accountName,
+        })
+      } catch { /* non-critical — deploy proceeds with null prompt */ }
+    }
+
+    // Create agent record
+    // For real accounts: if an agent with the same skill_type already exists,
+    // update it instead of creating a duplicate
     let skillType = config.skill_type
-    if (!isDemo && gymId) {
+    if (!isDemo && accountId) {
       const { data: existing } = await supabaseAdmin
-        .from('autopilots')
-        .select('id')
-        .eq('gym_id', gymId)
+        .from('agents')
+        .select('id, name')
+        .eq('account_id', accountId)
         .eq('skill_type', skillType)
         .single()
 
       if (existing) {
-        skillType = `${config.skill_type}_${Date.now()}`
+        // Update existing agent instead of creating a duplicate
+        await supabaseAdmin
+          .from('agents')
+          .update({
+            name: config.name,
+            description: config.description,
+            system_prompt: config.system_prompt,
+            trigger_mode: config.trigger_mode,
+            trigger_event: config.trigger_event,
+            cron_schedule: config.cron_schedule,
+            action_type: config.action_type,
+            data_sources: config.data_sources,
+            is_active: true,
+          })
+          .eq('id', existing.id)
+
+        // Update or create automation
+        if (config.trigger_mode === 'cron' || config.trigger_mode === 'both') {
+          await supabaseAdmin
+            .from('agent_automations')
+            .upsert({
+              agent_id: existing.id,
+              account_id: accountId,
+              trigger_type: 'cron',
+              cron_schedule: config.cron_schedule ?? 'daily',
+              run_hour: (config as any).run_hour ?? 9,
+              is_active: true,
+            }, { onConflict: 'agent_id,trigger_type' })
+        }
+
+        return NextResponse.json({
+          success: true,
+          agent_id: existing.id,
+          name: config.name,
+          trigger_mode: config.trigger_mode,
+          trigger_event: config.trigger_event,
+          updated: true,
+        })
       }
     }
 
     const insertData: any = {
-      gym_id: gymId,
+      account_id: accountId,
       skill_type: skillType,
       name: config.name,
       description: config.description,
@@ -71,42 +123,66 @@ export async function POST(req: NextRequest) {
       insertData.user_id = session.id
     }
 
-    const { data: autopilot, error: apError } = await supabaseAdmin
-      .from('autopilots')
+    const { data: agent, error: agentError } = await supabaseAdmin
+      .from('agents')
       .insert(insertData)
       .select('id')
       .single()
 
-    if (apError || !autopilot) {
-      console.error('Autopilot insert error:', apError)
-      return NextResponse.json({ error: 'Failed to create autopilot' }, { status: 500 })
+    if (agentError || !agent) {
+      console.error('Agent insert error:', agentError)
+      return NextResponse.json({ error: 'Failed to create agent' }, { status: 500 })
     }
 
-    // If event-triggered and not demo, create agent_subscription record
-    if (
-      !isDemo &&
-      gymId &&
-      (config.trigger_mode === 'event' || config.trigger_mode === 'both') &&
-      config.trigger_event
-    ) {
-      const { error: subError } = await supabaseAdmin
-        .from('agent_subscriptions')
-        .insert({
-          gym_id: gymId,
-          autopilot_id: autopilot.id,
-          event_type: config.trigger_event,
-          is_active: true
-        })
+    // Create automation records in agent_automations
+    if (!isDemo && accountId) {
+      // Cron automation
+      if (config.trigger_mode === 'cron' || config.trigger_mode === 'both') {
+        const { error: cronErr } = await supabaseAdmin
+          .from('agent_automations')
+          .insert({
+            agent_id: agent.id,
+            account_id: accountId,
+            trigger_type: 'cron',
+            cron_schedule: config.cron_schedule ?? 'daily',
+            run_hour: (config as any).run_hour ?? 9,
+            is_active: true,
+          })
+        if (cronErr) console.error('Cron automation insert error:', cronErr)
+      }
 
-      if (subError) {
-        console.error('Subscription insert error:', subError)
-        // Non-fatal — autopilot was created, subscription failed
+      // Event automation
+      if (
+        (config.trigger_mode === 'event' || config.trigger_mode === 'both') &&
+        config.trigger_event
+      ) {
+        const { error: eventErr } = await supabaseAdmin
+          .from('agent_automations')
+          .insert({
+            agent_id: agent.id,
+            account_id: accountId,
+            trigger_type: 'event',
+            event_type: config.trigger_event,
+            is_active: true,
+          })
+        if (eventErr) console.error('Event automation insert error:', eventErr)
+
+        // Legacy dual-write to agent_subscriptions during migration
+        await supabaseAdmin
+          .from('agent_subscriptions')
+          .insert({
+            account_id: accountId,
+            agent_id: agent.id,
+            event_type: config.trigger_event,
+            is_active: true,
+          })
+          .then(() => {}, () => {}) // ignore errors on legacy write
       }
     }
 
     return NextResponse.json({
       success: true,
-      autopilot_id: autopilot.id,
+      agent_id: agent.id,
       name: config.name,
       trigger_mode: config.trigger_mode,
       trigger_event: config.trigger_event

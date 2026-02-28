@@ -1,15 +1,17 @@
+export const dynamic = 'force-dynamic'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 
-/** GET /api/workflows?gymId=xxx — list templates (system + gym-specific) */
+/** GET /api/workflows?accountId=xxx — list templates (system + gym-specific) */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const gymId = searchParams.get('gymId')
+  const accountId = searchParams.get('accountId')
 
   const { data, error } = await supabaseAdmin
     .from('workflows')
     .select('*')
-    .or(`gym_id.is.null${gymId ? `,gym_id.eq.${gymId}` : ''}`)
+    .or(`gym_id.is.null${accountId ? `,gym_id.eq.${accountId}` : ''}`)
     .eq('enabled', true)
     .order('created_at', { ascending: true })
 
@@ -20,7 +22,7 @@ export async function GET(req: NextRequest) {
 /** POST /api/workflows — create a new workflow */
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { gymId, name, goal, steps, timeoutDays, triggerConfig } = body
+  const { accountId, name, goal, steps, timeoutDays, triggerConfig } = body
 
   if (!name || !goal || !steps?.length) {
     return NextResponse.json({ error: 'name, goal, steps required' }, { status: 400 })
@@ -29,7 +31,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from('workflows')
     .insert({
-      gym_id: gymId ?? null,
+      account_id: accountId ?? null,
       name,
       goal,
       steps,

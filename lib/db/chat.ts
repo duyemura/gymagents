@@ -11,7 +11,7 @@ import type { GMChatMessage } from '../gmChat'
 // ── appendChatMessage ─────────────────────────────────────────────────────────
 
 export async function appendChatMessage(params: {
-  gymId: string
+  accountId: string
   role: 'user' | 'assistant' | 'system_event'
   content: string
   route?: string
@@ -23,7 +23,7 @@ export async function appendChatMessage(params: {
   const { error } = await supabaseAdmin
     .from('gm_chat_messages')
     .insert({
-      gym_id: params.gymId,
+      account_id: params.accountId,
       role: params.role,
       content: params.content,
       route: params.route ?? null,
@@ -41,11 +41,11 @@ export async function appendChatMessage(params: {
 
 // ── getChatHistory ────────────────────────────────────────────────────────────
 
-export async function getChatHistory(gymId: string, limit = 50): Promise<GMChatMessage[]> {
+export async function getChatHistory(accountId: string, limit = 50): Promise<GMChatMessage[]> {
   const { data, error } = await supabaseAdmin
     .from('gm_chat_messages')
     .select('*')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .order('created_at', { ascending: true })
     .limit(limit)
 
@@ -56,7 +56,7 @@ export async function getChatHistory(gymId: string, limit = 50): Promise<GMChatM
 
   return (data ?? []).map((row: any) => ({
     id: row.id,
-    gymId: row.gym_id,
+    accountId: row.gym_id,
     role: row.role as GMChatMessage['role'],
     content: row.content,
     route: row.route ?? undefined,
@@ -70,9 +70,9 @@ export async function getChatHistory(gymId: string, limit = 50): Promise<GMChatM
 
 // ── appendSystemEvent ─────────────────────────────────────────────────────────
 
-export async function appendSystemEvent(gymId: string, content: string): Promise<void> {
+export async function appendSystemEvent(accountId: string, content: string): Promise<void> {
   return appendChatMessage({
-    gymId,
+    accountId,
     role: 'system_event',
     content,
   })

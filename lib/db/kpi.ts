@@ -1,5 +1,5 @@
 /**
- * lib/db/kpi.ts — KPI snapshot helpers for gym_kpi_snapshots table.
+ * lib/db/kpi.ts — KPI snapshot helpers for account_kpi_snapshots table.
  *
  * Stores periodic snapshots of key gym metrics for trend tracking.
  * Written by cron/run-analysis after each GMAgent analysis run.
@@ -10,7 +10,7 @@ import { supabaseAdmin } from '../supabase'
 
 export interface KPISnapshot {
   id: string
-  gymId: string
+  accountId: string
   capturedAt: string
   activeMembersCount: number | null
   churnRiskCount: number | null
@@ -37,13 +37,13 @@ export interface KPISnapshotInsert {
 // ── saveKPISnapshot ───────────────────────────────────────────────────────────
 
 export async function saveKPISnapshot(
-  gymId: string,
+  accountId: string,
   snapshot: KPISnapshotInsert,
 ): Promise<void> {
   const { error } = await supabaseAdmin
-    .from('gym_kpi_snapshots')
+    .from('account_kpi_snapshots')
     .insert({
-      gym_id: gymId,
+      account_id: accountId,
       active_members: snapshot.activeMembersCount ?? snapshot.activeMembers ?? null,
       churn_risk_count: snapshot.churnRiskCount ?? null,
       avg_visits_per_week: snapshot.avgVisitsPerWeek ?? null,
@@ -58,13 +58,76 @@ export async function saveKPISnapshot(
   }
 }
 
+// ── getMonthlyRetentionROI ────────────────────────────────────────────────────
+
+export interface MonthlyRetentionROI {
+  tasksCreated: number
+  messagesSent: number
+  membersRetained: number
+  revenueRetained: number
+  membersChurned: number
+  conversationsActive: number
+  escalations: number
+}
+
+export async function getMonthlyRetentionROI(
+  accountId: string,
+  month?: string,
+): Promise<MonthlyRetentionROI> {
+  const now = new Date()
+  const monthStart = month
+    ? new Date(`${month}-01T00:00:00Z`)
+    : new Date(now.getFullYear(), now.getMonth(), 1)
+  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1)
+
+  const startIso = monthStart.toISOString()
+  const endIso = monthEnd.toISOString()
+
+  // All tasks created this month for this gym
+  const { data: tasks } = await supabaseAdmin
+    .from('agent_tasks')
+    .select('id, status, outcome, attributed_value, created_at')
+    .eq('account_id', accountId)
+    .gte('created_at', startIso)
+    .lt('created_at', endIso)
+
+  const allTasks = tasks ?? []
+
+  // Count messages sent (conversation entries with role='agent')
+  const taskIds = allTasks.map(t => t.id)
+  let messagesSent = 0
+  if (taskIds.length > 0) {
+    const { count } = await supabaseAdmin
+      .from('task_conversations')
+      .select('*', { count: 'exact', head: true })
+      .in('task_id', taskIds)
+      .eq('role', 'agent')
+    messagesSent = count ?? 0
+  }
+
+  const retained = allTasks.filter(t => t.outcome === 'engaged' || t.outcome === 'recovered')
+  const churned = allTasks.filter(t => t.outcome === 'churned')
+  const active = allTasks.filter(t => t.status === 'awaiting_reply' || t.status === 'in_progress')
+  const escalated = allTasks.filter(t => t.status === 'escalated')
+
+  return {
+    tasksCreated: allTasks.length,
+    messagesSent,
+    membersRetained: retained.length,
+    revenueRetained: retained.reduce((sum, t) => sum + (t.attributed_value ?? 0), 0),
+    membersChurned: churned.length,
+    conversationsActive: active.length,
+    escalations: escalated.length,
+  }
+}
+
 // ── getLatestKPISnapshot ──────────────────────────────────────────────────────
 
-export async function getLatestKPISnapshot(gymId: string): Promise<KPISnapshot | null> {
+export async function getLatestKPISnapshot(accountId: string): Promise<KPISnapshot | null> {
   const { data, error } = await supabaseAdmin
-    .from('gym_kpi_snapshots')
+    .from('account_kpi_snapshots')
     .select('*')
-    .eq('gym_id', gymId)
+    .eq('account_id', accountId)
     .order('captured_at', { ascending: false })
     .limit(1)
     .single()
@@ -78,7 +141,7 @@ export async function getLatestKPISnapshot(gymId: string): Promise<KPISnapshot |
 
   return {
     id: data.id,
-    gymId: data.gym_id,
+    accountId: data.gym_id,
     capturedAt: data.captured_at,
     activeMembersCount: data.active_members ?? null,
     churnRiskCount: data.churn_risk_count ?? null,

@@ -19,7 +19,7 @@ export async function insertCommand(
   const { data, error } = await supabaseAdmin
     .from('agent_commands')
     .insert({
-      gym_id: cmd.gymId,
+      account_id: cmd.accountId,
       command_type: cmd.commandType,
       payload: cmd.payload,
       issued_by_agent: cmd.issuedByAgent,
@@ -166,7 +166,7 @@ export async function updateOutboundMessageStatus(
 function dbRowToCommand(row: any): AgentCommand {
   return {
     id: row.id,
-    gymId: row.gym_id,
+    accountId: row.gym_id,
     commandType: row.command_type,
     payload: row.payload ?? {},
     issuedByAgent: row.issued_by_agent,

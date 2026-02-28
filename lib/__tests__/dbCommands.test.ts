@@ -37,7 +37,7 @@ import type { AgentCommand } from '../commands/commandBus'
 
 const makeDbCommand = (overrides: Partial<AgentCommand> = {}): AgentCommand => ({
   id: 'cmd-db-001',
-  gymId: 'gym-001',
+  accountId: 'gym-001',
   commandType: 'SendEmail',
   payload: { recipientEmail: 'dan@example.com' },
   issuedByAgent: 'retention',
@@ -77,7 +77,7 @@ describe('insertCommand', () => {
   it('inserts into agent_commands and returns the created record', async () => {
     const dbRow = {
       id: 'new-cmd-001',
-      gym_id: 'gym-001',
+      account_id: 'gym-001',
       command_type: 'SendEmail',
       payload: {},
       issued_by_agent: 'retention',
@@ -114,8 +114,8 @@ describe('claimPendingCommands', () => {
 
   it('returns pending commands', async () => {
     const dbRows = [
-      { id: 'c1', gym_id: 'g1', command_type: 'SendEmail', payload: {}, issued_by_agent: 'ret', status: 'pending', attempts: 0, max_attempts: 3, next_attempt_at: new Date().toISOString(), created_at: new Date().toISOString() },
-      { id: 'c2', gym_id: 'g1', command_type: 'SendEmail', payload: {}, issued_by_agent: 'ret', status: 'pending', attempts: 0, max_attempts: 3, next_attempt_at: new Date().toISOString(), created_at: new Date().toISOString() },
+      { id: 'c1', account_id: 'g1', command_type: 'SendEmail', payload: {}, issued_by_agent: 'ret', status: 'pending', attempts: 0, max_attempts: 3, next_attempt_at: new Date().toISOString(), created_at: new Date().toISOString() },
+      { id: 'c2', account_id: 'g1', command_type: 'SendEmail', payload: {}, issued_by_agent: 'ret', status: 'pending', attempts: 0, max_attempts: 3, next_attempt_at: new Date().toISOString(), created_at: new Date().toISOString() },
     ]
     mockFrom.mockReturnValue(makeChain({ data: dbRows, error: null }))
 
@@ -213,7 +213,7 @@ describe('createOutboundMessage', () => {
   it('inserts into outbound_messages and returns the created record', async () => {
     const created = {
       id: 'out-msg-001',
-      gym_id: 'gym-001',
+      account_id: 'gym-001',
       status: 'queued',
       channel: 'email',
       recipient_email: 'dan@example.com',
@@ -221,7 +221,7 @@ describe('createOutboundMessage', () => {
     mockFrom.mockReturnValue(makeChain({ data: created, error: null }))
 
     const result = await createOutboundMessage({
-      gym_id: 'gym-001',
+      account_id: 'gym-001',
       task_id: null,
       sent_by_agent: 'retention',
       channel: 'email',
@@ -240,7 +240,7 @@ describe('createOutboundMessage', () => {
     mockFrom.mockReturnValue(makeChain({ data: null, error: { message: 'insert failed' } }))
 
     await expect(createOutboundMessage({
-      gym_id: 'gym-001',
+      account_id: 'gym-001',
       task_id: null,
       sent_by_agent: 'retention',
       channel: 'email',

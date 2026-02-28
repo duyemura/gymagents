@@ -1,216 +1,63 @@
+export const dynamic = 'force-dynamic'
+
 /**
  * POST /api/cron/run-analysis
  *
- * Vercel Cron endpoint — runs GMAgent analysis for all connected gyms.
+ * Vercel Cron endpoint — runs active agents for all connected accounts.
  * Called every 6 hours by Vercel Cron.
- * Validates CRON_SECRET header before processing.
  *
- * vercel.json:
- * {
- *   "crons": [{ "path": "/api/cron/run-analysis", "schedule": "0 every6h * * *" }]
- * }
+ * For each account:
+ *   1. Build AccountSnapshot via connector (pushpress-platform.ts)
+ *   2. Fetch active cron-triggered agents (agents table)
+ *   3. Run each agent through the generic agent-runtime
+ *   4. Create tasks from insights, save KPI snapshot + artifact
  *
- * For each gym:
- *   1. Fetch PushPress data via Platform API v1 (accurate field names from OpenAPI spec)
- *   2. Build GymSnapshot using pushpress-platform.ts mapping functions
- *   3. Run GMAgent.runAnalysis()
- *   4. Save KPI snapshot
+ * This route is infrastructure — it fetches credentials, builds the snapshot,
+ * and dispatches to agents. Each agent's behavior is defined by its skill file
+ * + business memories + optional owner override. No hardcoded domain logic.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { decrypt } from '@/lib/encrypt'
-import { GMAgent } from '@/lib/agents/GMAgent'
-import type { GymSnapshot, PaymentEvent } from '@/lib/agents/GMAgent'
+import type { AccountSnapshot, AccountInsight } from '@/lib/agents/GMAgent'
+import { runAgentAnalysis } from '@/lib/agents/agent-runtime'
+import { runUnattendedSession } from '@/lib/agents/session-runtime'
 import { createInsightTask } from '@/lib/db/tasks'
-import { saveKPISnapshot } from '@/lib/db/kpi'
+import { saveKPISnapshot, getMonthlyRetentionROI } from '@/lib/db/kpi'
 import { appendSystemEvent } from '@/lib/db/chat'
-import * as dbTasks from '@/lib/db/tasks'
-import { sendEmail } from '@/lib/resend'
+import { createArtifact } from '@/lib/artifacts/db'
+import type { ResearchSummaryData } from '@/lib/artifacts/types'
 import Anthropic from '@anthropic-ai/sdk'
-import {
-  ppGet,
-  buildMemberData,
-  PP_PLATFORM_BASE,
-} from '@/lib/pushpress-platform'
-import type {
-  PPCustomer,
-  PPEnrollment,
-  PPCheckin,
-  MemberDataWithFlags,
-} from '@/lib/pushpress-platform'
+import { HAIKU } from '@/lib/models'
+import { buildAccountSnapshot } from '@/lib/pushpress-platform'
+import { harvestDataLenses } from '@/lib/data-lens'
+import { getAccountTimezone, getLocalHour, getLocalDayOfWeek } from '@/lib/timezone'
 
 // ──────────────────────────────────────────────────────────────────────────────
-// buildGymSnapshot — accurate field mapping via pushpress-platform.ts
+// Claude evaluate helper — shared across all agent runs
 // ──────────────────────────────────────────────────────────────────────────────
 
-/**
- * Fetch all PushPress data for a gym and build a GymSnapshot.
- *
- * Uses the real Platform API v1 endpoints and field names:
- *   GET /customers   → PPCustomer[]  (name is { first, last, nickname })
- *   GET /checkins    → PPCheckin[]   (customer UUID field, timestamp in ms)
- *   GET /enrollments → PPEnrollment[] (status: active|alert|canceled|paused|etc)
- *
- * Auth: API-KEY header (NOT Authorization: Bearer)
- */
-async function buildGymSnapshot(
-  gymId: string,
-  gymName: string,
-  apiKey: string,
-  companyId?: string,
-): Promise<GymSnapshot> {
-  const now = new Date()
-  const thirtyDaysAgoMs = now.getTime() - 30 * 24 * 60 * 60 * 1000
-  const sixtyDaysAgoMs  = now.getTime() - 60 * 24 * 60 * 60 * 1000
-
-  // Fetch customers, enrollments, and checkins (60-day window) in parallel.
-  // Checkin timestamps are unix ms — convert to ISO for query params.
-  const sixtyDaysAgoSec = Math.floor(sixtyDaysAgoMs / 1000)
-  const nowSec = Math.floor(now.getTime() / 1000)
-
-  const [customers, enrollments, checkins] = await Promise.all([
-    ppGet<PPCustomer>(apiKey, '/customers', {}, companyId),
-    ppGet<PPEnrollment>(apiKey, '/enrollments', {}, companyId),
-    ppGet<PPCheckin>(apiKey, '/checkins', {
-      // The spec uses unix seconds for query params (start/end of class)
-      // but checkin.timestamp itself is unix ms
-      startTimestamp: String(sixtyDaysAgoSec),
-      endTimestamp: String(nowSec),
-    }, companyId),
-  ])
-
-  // Index: customerId → most recent active enrollment
-  // A customer may have multiple enrollments — use the active/alert one first,
-  // fall back to the most recently started.
-  const enrollmentByCustomer = new Map<string, PPEnrollment>()
-  const ACTIVE_PRIORITY: Record<string, number> = {
-    active: 0, alert: 1, pendcancel: 2, paused: 3,
-    pendactivation: 4, completed: 5, canceled: 6,
-  }
-  for (const enr of enrollments) {
-    const existing = enrollmentByCustomer.get(enr.customerId)
-    if (!existing) {
-      enrollmentByCustomer.set(enr.customerId, enr)
-    } else {
-      const existingPriority = ACTIVE_PRIORITY[existing.status] ?? 99
-      const newPriority = ACTIVE_PRIORITY[enr.status] ?? 99
-      if (newPriority < existingPriority) {
-        enrollmentByCustomer.set(enr.customerId, enr)
-      }
-    }
-  }
-
-  // Index: customerId → checkins in 60-day window
-  // Key: checkin.customer is the UUID (NOT customerId)
-  const checkinsByCustomer = new Map<string, PPCheckin[]>()
-  for (const chk of checkins) {
-    const list = checkinsByCustomer.get(chk.customer) ?? []
-    list.push(chk)
-    checkinsByCustomer.set(chk.customer, list)
-  }
-
-  // Build MemberData for each customer
-  // Monthly revenue: we don't have plan amounts from the API without fetching /plans.
-  // Use a placeholder of 0 — gym owner knows their prices. Future: fetch /plans.
-  const members: MemberDataWithFlags[] = customers.map(customer => {
-    const enrollment = enrollmentByCustomer.get(customer.id) ?? null
-    const customerCheckins = checkinsByCustomer.get(customer.id) ?? []
-    return buildMemberData(customer, enrollment, customerCheckins, now, 0)
-  })
-
-  // Surface payment_failed insights from 'alert' enrollment status
-  // (alert = payment failed — enrollment is still active but payment is broken)
-  const paymentEvents: PaymentEvent[] = []
-  for (const member of members) {
-    if (member.hasPaymentAlert) {
-      paymentEvents.push({
-        id: `alert-${member.id}`,
-        memberId: member.id,
-        memberName: member.name,
-        memberEmail: member.email,
-        eventType: 'payment_failed',
-        amount: member.monthlyRevenue,
-        failedAt: new Date().toISOString(),
-      })
-    }
-  }
-
-  // Map checkins to CheckinData for the snapshot (recent 30 days only)
-  const recentCheckins = checkins
-    .filter(c => c.timestamp >= thirtyDaysAgoMs)
-    .map(c => ({
-      id: c.id,
-      customerId: c.customer,    // normalise to customerId for internal use
-      timestamp: c.timestamp,
-      className: c.name ?? '',
-      kind: c.kind,
-      role: c.role ?? 'attendee',
-      result: c.result ?? 'success',
-    }))
-
-  return {
-    gymId,
-    gymName,
-    members,
-    recentCheckins,
-    recentLeads: [],
-    paymentEvents,
-    capturedAt: now.toISOString(),
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Simple Claude evaluate helper for cron context
-// ──────────────────────────────────────────────────────────────────────────────
-
-async function claudeEvaluate(system: string, prompt: string): Promise<string> {
+function makeClaudeEvaluate() {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
-  const response = await client.messages.create({
-    model: 'claude-3-5-haiku-20241022',
-    max_tokens: 512,
-    system,
-    messages: [{ role: 'user', content: prompt }],
-  })
-  const block = response.content.find(b => b.type === 'text')
-  return block?.type === 'text' ? block.text : ''
-}
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Build AgentDeps for GMAgent
-// ──────────────────────────────────────────────────────────────────────────────
-
-function buildAgentDeps() {
-  return {
-    db: {
-      getTask: dbTasks.getTask,
-      updateTaskStatus: dbTasks.updateTaskStatus,
-      appendConversation: dbTasks.appendConversation,
-      getConversationHistory: dbTasks.getConversationHistory,
-      createOutboundMessage: async () => { throw new Error('not used in analysis') },
-      updateOutboundMessageStatus: async () => { throw new Error('not used in analysis') },
-    },
-    events: {
-      publishEvent: async () => 'noop',
-    },
-    mailer: {
-      sendEmail: async (params: any) => {
-        await sendEmail(params)
-        return { id: 'noop' }
-      },
-    },
-    claude: {
-      evaluate: claudeEvaluate,
-    },
+  return async function claudeEvaluate(system: string, prompt: string): Promise<string> {
+    const response = await client.messages.create({
+      model: HAIKU,
+      max_tokens: 4096,
+      system,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const block = response.content.find(b => b.type === 'text')
+    return block?.type === 'text' ? block.text : ''
   }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// POST /api/cron/run-analysis
+// Handler
 // ──────────────────────────────────────────────────────────────────────────────
 
 async function handler(req: NextRequest): Promise<NextResponse> {
-  // Validate CRON_SECRET — Vercel sends Authorization: Bearer <CRON_SECRET> on GET
   const authHeader = req.headers.get('authorization')
   const expectedSecret = process.env.CRON_SECRET
 
@@ -218,104 +65,318 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  console.log('[run-analysis] Starting gym analysis cron')
+  console.log('[run-agents] Starting agent cron')
 
-  // Fetch all connected gyms
-  const { data: gyms, error: gymsError } = await supabaseAdmin
-    .from('gyms')
-    .select('id, gym_name, pushpress_api_key, pushpress_company_id')
+  // Fetch all connected accounts (include timezone for local-hour scheduling)
+  const { data: accounts, error: accountsError } = await supabaseAdmin
+    .from('accounts')
+    .select('id, gym_name, pushpress_api_key, pushpress_company_id, timezone')
     .not('pushpress_api_key', 'is', null)
 
-  if (gymsError) {
-    console.error('[run-analysis] Failed to fetch gyms:', gymsError.message)
-    return NextResponse.json({ error: gymsError.message }, { status: 500 })
+  if (accountsError) {
+    console.error('[run-agents] Failed to fetch accounts:', accountsError.message)
+    return NextResponse.json({ error: accountsError.message }, { status: 500 })
   }
 
-  let gymsAnalyzed = 0
+  const useSessionRuntime = process.env.USE_SESSION_RUNTIME === 'true'
+  const claude = { evaluate: makeClaudeEvaluate() }
+  let accountsAnalyzed = 0
   let totalInsights = 0
   let totalTasksCreated = 0
 
-  for (const gym of gyms ?? []) {
+  for (const account of accounts ?? []) {
     try {
-      // Decrypt PushPress API key
+      // Decrypt API key
       let apiKey: string
       try {
-        apiKey = decrypt(gym.pushpress_api_key)
+        apiKey = decrypt(account.pushpress_api_key)
       } catch (err) {
-        console.error(`[run-analysis] Could not decrypt API key for gym ${gym.id}:`, err)
+        console.error(`[run-agents] Could not decrypt API key for account ${account.id}:`, err)
         continue
       }
 
-      // Fetch PushPress data + build snapshot using accurate Platform API v1 types
-      let snapshot: GymSnapshot
+      // Build snapshot via connector layer
+      let snapshot: AccountSnapshot
       try {
-        snapshot = await buildGymSnapshot(
-          gym.id,
-          gym.gym_name ?? 'Gym',
+        snapshot = await buildAccountSnapshot(
+          account.id,
+          account.gym_name ?? 'Business',
           apiKey,
-          gym.pushpress_company_id ?? undefined,
+          account.pushpress_company_id ?? undefined,
         )
       } catch (err) {
-        console.error(`[run-analysis] PushPress fetch failed for gym ${gym.id}:`, err)
+        console.error(`[run-agents] Connector fetch failed for account ${account.id}:`, err)
         continue
       }
 
-      // Run GMAgent analysis
-      const deps = buildAgentDeps()
-      const agent = new GMAgent(deps as any)
-      agent.setCreateInsightTask((params) => createInsightTask(params))
+      // Harvest data lens memories (segments snapshot into refreshable summaries)
+      try {
+        await harvestDataLenses(account.id, snapshot)
+      } catch (err) {
+        console.warn(`[run-agents] Data lens harvest failed for account ${account.id} (non-fatal):`, (err as Error).message)
+      }
 
-      const result = await agent.runAnalysis(gym.id, snapshot)
+      // Fetch cron automations due now, joined with agent capability
+      // Use account's local hour (not UTC) so agents run at the owner's expected time
+      const accountTimezone = account.timezone || 'America/New_York'
+      const now = new Date()
+      const currentLocalHour = getLocalHour(accountTimezone, now)
+      const currentLocalDay = getLocalDayOfWeek(accountTimezone, now)
 
-      // Save KPI snapshot
+      const { data: automationsRaw } = await supabaseAdmin
+        .from('agent_automations')
+        .select('id, cron_schedule, run_hour, agent_id, agents!inner(id, skill_type, system_prompt, name)')
+        .eq('account_id', account.id)
+        .eq('trigger_type', 'cron')
+        .eq('is_active', true)
+
+      // Hourly automations always run; daily/weekly only at their scheduled hour
+      // run_hour is now interpreted as the account's local hour (not UTC)
+      const dueAutomations = (automationsRaw ?? []).filter((a: any) => {
+        if (a.cron_schedule === 'hourly') return true
+        const agentHour = a.run_hour ?? 9
+        if (a.cron_schedule === 'daily') return currentLocalHour === agentHour
+        if (a.cron_schedule === 'weekly') {
+          return currentLocalDay === 1 && currentLocalHour === agentHour // Monday
+        }
+        return true
+      })
+
+      // Extract agent objects from the join
+      const agents = dueAutomations.map((a: any) => ({
+        ...(a.agents as any),
+        automationId: a.id,
+      }))
+
+      if (agents.length === 0) {
+        console.log(`[run-agents] No agents due for account ${account.id} at local hour ${currentLocalHour} (${accountTimezone}), skipping`)
+        continue
+      }
+
+      // Run each agent through the generic runtime
+      const allInsights: AccountInsight[] = []
+      const agentResults: { agentId: string; name: string; count: number }[] = []
+
+      for (const agent of agents) {
+        try {
+          // ── Session runtime path (feature-flagged) ──────────────────────
+          if (useSessionRuntime) {
+            const session = await runUnattendedSession({
+              accountId: account.id,
+              goal: `Analyze all members and identify those needing attention. Create tasks for anyone who needs outreach. You are the "${agent.name ?? agent.skill_type}" agent.`,
+              agentId: agent.id,
+              tools: ['data', 'action', 'learning'],
+              autonomyMode: 'full_auto',
+              maxTurns: 15,
+              createdBy: 'cron',
+              apiKey: apiKey,
+              companyId: account.pushpress_company_id ?? '',
+              systemPromptOverride: agent.system_prompt,
+              skillType: agent.skill_type,
+            })
+
+            const sessionOutputs = (session.outputs ?? []) as any[]
+            const tasksCreated = sessionOutputs.filter((o: any) => o.type === 'task_created').length
+            agentResults.push({ agentId: agent.id, name: agent.name ?? agent.skill_type, count: tasksCreated })
+            totalTasksCreated += tasksCreated
+
+            // Record agent run
+            await supabaseAdmin
+              .from('agent_runs')
+              .insert({
+                account_id: account.id,
+                agent_id: agent.id,
+                agent_type: agent.skill_type,
+                automation_id: agent.automationId ?? null,
+                trigger_source: 'cron',
+                trigger_ref: agent.automationId ? 'scheduled' : null,
+                status: 'completed',
+                input_summary: `Session: ${tasksCreated} tasks created (session ${session.id})`,
+                output: { sessionId: session.id, tasksCreated, turns: session.turnCount, costCents: session.costCents },
+              })
+
+            console.log(`[run-agents] session agent=${agent.name ?? agent.skill_type} tasks=${tasksCreated} turns=${session.turnCount} cost=${session.costCents}c`)
+            continue
+          }
+
+          // ── Legacy single-call path ─────────────────────────────────────
+          const result = await runAgentAnalysis(
+            {
+              skillType: agent.skill_type,
+              systemPromptOverride: agent.system_prompt,
+              accountId: account.id,
+            },
+            snapshot,
+            claude,
+          )
+
+          // Create tasks from this agent's insights
+          let tasksCreated = 0
+          for (const insight of result.insights) {
+            try {
+              await createInsightTask({ accountId: account.id, insight })
+              tasksCreated++
+            } catch (err) {
+              console.error(`[run-agents] Failed to create task:`, (err as Error).message)
+            }
+          }
+
+          allInsights.push(...result.insights)
+          agentResults.push({ agentId: agent.id, name: agent.name ?? agent.skill_type, count: result.insights.length })
+          totalTasksCreated += tasksCreated
+
+          // Record this agent run
+          await supabaseAdmin
+            .from('agent_runs')
+            .insert({
+              account_id: account.id,
+              agent_id: agent.id,
+              agent_type: agent.skill_type,
+              automation_id: agent.automationId ?? null,
+              trigger_source: 'cron',
+              trigger_ref: agent.automationId ? 'scheduled' : null,
+              status: 'completed',
+              input_summary: `Cron: ${result.insights.length} insights from ${snapshot.members.length} members`,
+              output: { insightCount: result.insights.length, tasksCreated },
+            })
+
+          console.log(`[run-agents] agent=${agent.name ?? agent.skill_type} insights=${result.insights.length} tasks=${tasksCreated}`)
+        } catch (err) {
+          console.error(`[run-agents] Agent ${agent.skill_type} failed for account ${account.id}:`, err)
+          // Continue to next agent
+        }
+      }
+
+      // Save KPI snapshot (aggregated across all agents)
       const activeMembers = snapshot.members.filter(m => m.status === 'active').length
-      const churnRiskCount = result.insights.filter(
-        i => i.type === 'churn_risk' || i.type === 'renewal_at_risk'
+      const churnRiskCount = allInsights.filter(
+        i => i.priority === 'critical' || i.priority === 'high'
       ).length
       const revenueMtd = snapshot.members
         .filter(m => m.status === 'active')
         .reduce((sum, m) => sum + m.monthlyRevenue, 0)
 
-      await saveKPISnapshot(gym.id, {
+      await saveKPISnapshot(account.id, {
         activeMembers,
         churnRiskCount,
         revenueMtd,
-        insightsGenerated: result.insightsFound,
+        insightsGenerated: allInsights.length,
         rawData: {
           snapshotCapturedAt: snapshot.capturedAt,
           totalMembers: snapshot.members.length,
+          agentResults,
         },
       })
 
-      // Append system event to the unified GM chat log
-      await appendSystemEvent(
-        gym.id,
-        `GM ran analysis. Found ${result.insightsFound} insight${result.insightsFound !== 1 ? 's' : ''}${result.insightsFound > 0 ? ', added to your To-Do.' : '.'}`,
-      )
+      // Build system event summary showing which agents found what
+      const agentSummary = agentResults
+        .filter(a => a.count > 0)
+        .map(a => `${a.name}: ${a.count}`)
+        .join(', ')
+      const eventMsg = allInsights.length > 0
+        ? `Agents found ${allInsights.length} insight${allInsights.length !== 1 ? 's' : ''} (${agentSummary}), added to your To-Do.`
+        : 'Agents ran analysis — no issues found.'
+      await appendSystemEvent(account.id, eventMsg)
 
-      gymsAnalyzed++
-      totalInsights += result.insightsFound
-      totalTasksCreated += result.tasksCreated
+      // Generate artifact (fire-and-forget)
+      if (allInsights.length > 0) {
+        generateAnalysisArtifact(
+          account.id,
+          account.gym_name ?? 'Your Business',
+          { insights: allInsights, insightsFound: allInsights.length, tasksCreated: totalTasksCreated },
+          snapshot,
+        ).catch(err => {
+          console.warn(`[run-agents] Artifact generation failed for account ${account.id}:`, (err as Error).message)
+        })
+      }
 
-      console.log(
-        `[run-analysis] gym=${gym.id} insights=${result.insightsFound} tasks=${result.tasksCreated}`
-      )
+      accountsAnalyzed++
+      totalInsights += allInsights.length
+
+      console.log(`[run-agents] account=${account.id} agents=${agents.length} insights=${allInsights.length}`)
     } catch (err) {
-      console.error(`[run-analysis] Unexpected error for gym ${gym.id}:`, err)
-      // Continue to next gym — never abort the whole run
+      console.error(`[run-agents] Unexpected error for account ${account.id}:`, err)
     }
   }
 
-  console.log(
-    `[run-analysis] Done. gymsAnalyzed=${gymsAnalyzed} insights=${totalInsights} tasks=${totalTasksCreated}`
-  )
+  console.log(`[run-agents] Done. accounts=${accountsAnalyzed} insights=${totalInsights} tasks=${totalTasksCreated}`)
 
   return NextResponse.json({
     ok: true,
-    gymsAnalyzed,
+    accountsAnalyzed,
     totalInsights,
     totalTasksCreated,
   })
+}
+
+// ── Artifact generation ──────────────────────────────────────────────────────
+
+async function generateAnalysisArtifact(
+  accountId: string,
+  accountName: string,
+  result: { insights: AccountInsight[]; insightsFound: number; tasksCreated: number },
+  snapshot: AccountSnapshot,
+) {
+  const now = new Date()
+  const monthLabel = now.toLocaleString('en-US', { month: 'long', year: 'numeric' })
+
+  let roi = { membersRetained: 0, revenueRetained: 0, messagesSent: 0, conversationsActive: 0, escalations: 0 }
+  try {
+    roi = await getMonthlyRetentionROI(accountId)
+  } catch {
+    // Non-fatal
+  }
+
+  const priorityToRisk = (p: string): 'high' | 'medium' | 'low' =>
+    p === 'critical' || p === 'high' ? 'high' : p === 'medium' ? 'medium' : 'low'
+
+  const priorityToStatus = (p: string): 'at_risk' | 'escalated' | 'active' =>
+    p === 'critical' ? 'escalated' : p === 'high' || p === 'medium' ? 'at_risk' : 'active'
+
+  const artifactData: ResearchSummaryData = {
+    accountName,
+    generatedAt: now.toISOString(),
+    period: monthLabel,
+    generatedBy: 'Agents',
+    stats: {
+      membersAtRisk: result.insights.filter(i => i.priority === 'critical' || i.priority === 'high' || i.priority === 'medium').length,
+      membersRetained: roi.membersRetained,
+      revenueRetained: roi.revenueRetained,
+      messagesSent: roi.messagesSent,
+      conversationsActive: roi.conversationsActive,
+      escalations: roi.escalations,
+    },
+    members: result.insights.slice(0, 15).map(insight => ({
+      name: insight.memberName ?? 'Unknown',
+      email: insight.memberEmail,
+      status: priorityToStatus(insight.priority),
+      riskLevel: priorityToRisk(insight.priority),
+      detail: insight.detail ?? insight.title,
+      membershipValue: undefined,
+    })),
+    insights: [
+      ...result.insights.length > 0
+        ? [`${result.insightsFound} members flagged across ${new Set(result.insights.map(i => i.type)).size} categories`]
+        : [],
+      ...(result.insights.filter(i => i.priority === 'critical').length > 0
+        ? [`${result.insights.filter(i => i.priority === 'critical').length} critical priority — review these first`]
+        : []),
+      ...(roi.membersRetained > 0
+        ? [`${roi.membersRetained} members retained this month, saving $${roi.revenueRetained.toLocaleString()}`]
+        : []),
+    ],
+  }
+
+  await createArtifact({
+    accountId,
+    artifactType: 'research_summary',
+    title: `${accountName} — Analysis Summary`,
+    data: artifactData as unknown as Record<string, unknown>,
+    createdBy: 'gm',
+    shareable: true,
+  })
+
+  console.log(`[run-agents] Artifact generated for account ${accountId}`)
 }
 
 // Vercel Cron Jobs send GET requests — also keep POST for manual triggers

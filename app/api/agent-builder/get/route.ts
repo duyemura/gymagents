@@ -1,11 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { getSession } from '@/lib/auth'
+export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
+import { getSession } from '@/lib/auth'
+import { getAccountForUser } from '@/lib/db/accounts'
 
 export async function GET(req: NextRequest) {
   const session = await getSession()
@@ -17,20 +15,22 @@ export async function GET(req: NextRequest) {
   const isDemo = (session as any)?.isDemo
   const demoSessionId = (session as any)?.demoSessionId
 
-  let query = supabase.from('autopilots').select('*').eq('id', id)
+  let query = supabaseAdmin.from('agents').select('*').eq('id', id)
 
   if (isDemo && demoSessionId) {
     // Scope demo fetch to this session only
     query = query.eq('demo_session_id', demoSessionId)
   } else {
-    query = query.eq('user_id', session.id)
+    const account = await getAccountForUser(session.id)
+    if (!account) return NextResponse.json({ error: 'No account connected' }, { status: 400 })
+    query = query.eq('account_id', account.id)
   }
 
   const { data, error } = await query.single()
 
   if (error || !data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Map DB row back to AutopilotConfig shape
+  // Map DB row back to AgentConfig shape
   const config = {
     name: data.name,
     description: data.description || '',

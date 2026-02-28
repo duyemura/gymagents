@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 /**
  * POST /api/gm/chat
  *
@@ -10,54 +12,78 @@
  *   inline_query      — single PushPress data fetch + format
  *   prebuilt_specialist — known domain (churn, revenue, funnel) with specialist prompt
  *   dynamic_specialist  — novel task: GM writes specialist prompt first, then runs it
+ *   create_task       — owner wants to create a task or assign work to an agent
  */
 
+import fs from 'fs'
+import path from 'path'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import {
   classifyTask,
   claudeRespond,
   buildGymSystemPrompt,
+  buildGMSystemPromptWithAgents,
   pickSpecialist,
   SPECIALIST_PROMPTS,
   type TaskRoute,
   type ActionType,
   type GMChatResponse,
-  type GymContext,
+  type AccountContext,
 } from '@/lib/gmChat'
 import { appendChatMessage } from '@/lib/db/chat'
+import { createAdHocTask } from '@/lib/db/tasks'
+
+// ── Agent definition loader ────────────────────────────────────────────────────
+
+/**
+ * Loads sub-agent definition files from .agents/agents/*.md (excluding gm.md).
+ * These are injected into the GM system prompt so it knows what to delegate.
+ */
+function loadSubAgentDefinitions(): string {
+  try {
+    const agentsDir = path.join(process.cwd(), '.agents', 'agents')
+    const files = fs.readdirSync(agentsDir)
+      .filter(f => f.endsWith('.md') && f !== 'gm.md')
+      .sort()
+    return files
+      .map(f => fs.readFileSync(path.join(agentsDir, f), 'utf-8'))
+      .join('\n\n---\n\n')
+  } catch {
+    return ''
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 interface GymRow {
-  gym_name: string
-  member_count: number
+  account_name: string
   pushpress_api_key: string | null
   pushpress_company_id: string | null
 }
 
-async function loadGymContext(gymId: string): Promise<GymContext & { apiKey?: string; companyId?: string }> {
+async function loadAccountContext(accountId: string): Promise<AccountContext & { apiKey?: string; companyId?: string }> {
   try {
     const { data } = await supabaseAdmin
-      .from('gyms')
-      .select('gym_name, member_count, pushpress_api_key, pushpress_company_id')
-      .eq('id', gymId)
+      .from('accounts')
+      .select('account_name, pushpress_api_key, pushpress_company_id')
+      .eq('id', accountId)
       .single()
 
     const row = data as GymRow | null
     return {
-      gymId,
-      gymName: row?.gym_name ?? 'Your Gym',
-      memberCount: row?.member_count ?? 0,
+      accountId,
+      accountName: row?.account_name ?? 'Your Gym',
       apiKey: row?.pushpress_api_key ?? undefined,
       companyId: row?.pushpress_company_id ?? undefined,
     }
   } catch {
-    return { gymId, gymName: 'Your Gym', memberCount: 0 }
+    return { accountId, accountName: 'Your Gym' }
   }
 }
 
 function inferActionType(reply: string, route: TaskRoute): ActionType {
+  if (route === 'create_task') return 'task_created'
   if (route === 'dynamic_specialist') return 'recommendation'
   if (route === 'prebuilt_specialist') return 'recommendation'
   if (/\btable\b|\blist\b|\bhere are\b|\bfollowing\b/i.test(reply)) return 'answer'
@@ -68,9 +94,12 @@ function inferActionType(reply: string, route: TaskRoute): ActionType {
 
 async function handleDirectAnswer(
   message: string,
-  gymContext: GymContext,
+  gymContext: AccountContext,
+  subAgentContext: string,
 ): Promise<{ reply: string; thinkingSteps: string[] }> {
-  const systemPrompt = buildGymSystemPrompt(gymContext)
+  const systemPrompt = subAgentContext
+    ? buildGMSystemPromptWithAgents(gymContext, subAgentContext)
+    : buildGymSystemPrompt(gymContext)
   const reply = await claudeRespond(systemPrompt, message)
   return {
     reply,
@@ -83,7 +112,7 @@ async function fetchPushPressData(apiKey: string, companyId: string): Promise<{
   checkins: unknown[]
   enrollments: unknown[]
 }> {
-  const PP_BASE = 'https://api.pushpressdev.com/platform/v1'
+  const { PP_PLATFORM_BASE: PP_BASE } = await import('@/lib/pushpress-platform')
   const headers = {
     'API-KEY': apiKey,
     'X-Company-ID': companyId,
@@ -112,7 +141,7 @@ async function fetchPushPressData(apiKey: string, companyId: string): Promise<{
 
 async function handleInlineQuery(
   message: string,
-  gymContext: GymContext & { apiKey?: string; companyId?: string },
+  gymContext: AccountContext & { apiKey?: string; companyId?: string },
 ): Promise<{ reply: string; thinkingSteps: string[] }> {
   const thinkingSteps: string[] = ['Classified as inline_query — fetching gym data']
 
@@ -143,15 +172,15 @@ You have direct access to this gym's live PushPress data. Answer the question us
 
 async function handlePrebuiltSpecialist(
   message: string,
-  gymContext: GymContext,
+  gymContext: AccountContext,
 ): Promise<{ reply: string; thinkingSteps: string[] }> {
   const specialistKey = pickSpecialist('prebuilt_specialist', message)
   const specialistPrompt = SPECIALIST_PROMPTS[specialistKey] ?? SPECIALIST_PROMPTS.operations
 
   const fullSystem = `${specialistPrompt}
 
-Gym: ${gymContext.gymName} with ${gymContext.memberCount} members.
-Be specific, practical, and data-focused. If you don't have specific data, 
+Gym: ${gymContext.accountName} with ${gymContext.memberCount} members.
+Be specific, practical, and data-focused. If you don't have specific data,
 explain what patterns you'd look for and what actions to take.`
 
   const reply = await claudeRespond(fullSystem, message)
@@ -167,24 +196,22 @@ explain what patterns you'd look for and what actions to take.`
 
 async function handleDynamicSpecialist(
   message: string,
-  gymContext: GymContext,
+  gymContext: AccountContext,
 ): Promise<{ reply: string; thinkingSteps: string[] }> {
-  // Step 1: GM writes specialist prompt
-  const gmSystemPrompt = `You are a GM Agent for a boutique gym. Write a focused system prompt for a 
-specialist agent that will handle this task. Keep it under 200 words. Be specific about 
+  const gmSystemPrompt = `You are a GM Agent for a boutique gym. Write a focused system prompt for a
+specialist agent that will handle this task. Keep it under 200 words. Be specific about
 what data to look for and what to return.`
 
   const specialistPrompt = await claudeRespond(
     gmSystemPrompt,
     `Write a specialist system prompt for this task: "${message}"
-Gym: ${gymContext.gymName}, ${gymContext.memberCount} members.
+Gym: ${gymContext.accountName}, ${gymContext.memberCount} members.
 The system prompt should tell the specialist exactly what to analyze and how to format the response.`,
   )
 
-  // Step 2: Run with specialist prompt
   const reply = await claudeRespond(
     specialistPrompt,
-    `Task: ${message}\n\nGym context: ${gymContext.gymName}, ${gymContext.memberCount} members.`,
+    `Task: ${message}\n\nGym context: ${gymContext.accountName}, ${gymContext.memberCount} members.`,
   )
 
   return {
@@ -193,6 +220,78 @@ The system prompt should tell the specialist exactly what to analyze and how to 
       `Classified as dynamic_specialist — novel task`,
       `GM wrote custom specialist prompt`,
       `Specialist executed task`,
+    ],
+  }
+}
+
+async function handleCreateTask(
+  message: string,
+  gymContext: AccountContext,
+  accountId: string,
+  subAgentContext: string,
+): Promise<{ reply: string; taskId: string; thinkingSteps: string[] }> {
+  // Ask Claude to extract structured task details from the owner's message
+  const extractionPrompt = `You are a task extractor for a gym management system.
+Extract task details from this owner message and return valid JSON only — no markdown, no explanation.
+
+Available agents:
+- "gm" — research, analysis, monitoring, anything not involving direct member outreach
+- "retention" — tasks that involve messaging a specific member, following up with at-risk members, win-back
+
+Valid task_type values: ad_hoc, churn_risk, renewal_at_risk, win_back, research, monitor
+
+Return exactly this JSON structure:
+{
+  "goal": "clear one-sentence description of what the task should accomplish",
+  "assigned_agent": "gm" or "retention",
+  "task_type": "one of the valid values above",
+  "member_name": "if a specific member is named, otherwise null",
+  "member_email": "if a specific member email is mentioned, otherwise null"
+}
+
+Sub-agent context:
+${subAgentContext}`
+
+  let taskDetails: {
+    goal: string
+    assigned_agent: 'gm' | 'retention'
+    task_type: string
+    member_name?: string | null
+    member_email?: string | null
+  } = {
+    goal: message,
+    assigned_agent: 'gm',
+    task_type: 'ad_hoc',
+  }
+
+  try {
+    const raw = await claudeRespond(extractionPrompt, `Owner message: "${message}"\nGym: ${gymContext.accountName}`)
+    const parsed = JSON.parse(raw)
+    if (parsed.goal) taskDetails = parsed
+  } catch {
+    // Fall back to using the raw message as the goal
+  }
+
+  const task = await createAdHocTask({
+    accountId,
+    goal: taskDetails.goal,
+    assignedAgent: taskDetails.assigned_agent ?? 'gm',
+    taskType: taskDetails.task_type ?? 'ad_hoc',
+    memberName: taskDetails.member_name ?? undefined,
+    memberEmail: taskDetails.member_email ?? undefined,
+    context: { originalMessage: message },
+  })
+
+  const agentLabel = task.assigned_agent === 'retention' ? 'Retention Agent' : 'GM'
+  const reply = `Task created and assigned to ${agentLabel}: "${task.goal}"`
+
+  return {
+    reply,
+    taskId: task.id,
+    thinkingSteps: [
+      'Detected task creation request',
+      `Extracted goal: "${task.goal}"`,
+      `Assigned to: ${task.assigned_agent}`,
     ],
   }
 }
@@ -207,9 +306,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { message, gymId, conversationHistory } = body as {
+  const { message, accountId } = body as {
     message?: string
-    gymId?: string
+    accountId?: string
     conversationHistory?: unknown[]
   }
 
@@ -221,20 +320,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     )
   }
 
-  if (!gymId || typeof gymId !== 'string' || gymId.trim().length === 0) {
+  if (!accountId || typeof accountId !== 'string' || accountId.trim().length === 0) {
     return NextResponse.json(
-      { error: 'gymId is required and must be a non-empty string' },
+      { error: 'accountId is required and must be a non-empty string' },
       { status: 400 },
     )
   }
 
+  // Detect run analysis commands before doing any AI classification
+  const runAnalysisPattern = /^\s*(run|start|trigger|do|kick off)\s*(an?\s*)?(analysis|scan|retention scan|at.?risk scan)?\s*$/i
+  if (runAnalysisPattern.test(message.trim()) || /^run analysis$/i.test(message.trim())) {
+    await appendChatMessage({ accountId, role: 'user', content: message.trim() })
+    const reply = 'Starting retention analysis now — I\'ll report back when it\'s done.'
+    await appendChatMessage({ accountId, role: 'assistant', content: reply })
+    return NextResponse.json({ reply, route: 'run_analysis', actionType: 'recommendation' })
+  }
+
+  // Load sub-agent definitions once per request (cheap fs reads)
+  const subAgentContext = loadSubAgentDefinitions()
+
   try {
     // 1. Load gym context
-    const gymContext = await loadGymContext(gymId)
+    const gymContext = await loadAccountContext(accountId)
 
     // 2. Log user message
     await appendChatMessage({
-      gymId,
+      accountId,
       role: 'user',
       content: message.trim(),
     })
@@ -243,33 +354,34 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const route: TaskRoute = await classifyTask(message.trim())
 
     // 4. Route to handler
-    // For data-heavy routes, always try to fetch PushPress data
-    let result: { reply: string; thinkingSteps: string[] }
-    const richContext = gymContext as GymContext & { apiKey?: string; companyId?: string }
+    let result: { reply: string; thinkingSteps: string[]; taskId?: string }
+    const richContext = gymContext as AccountContext & { apiKey?: string; companyId?: string }
 
     switch (route) {
+      case 'create_task':
+        result = await handleCreateTask(message.trim(), gymContext, accountId, subAgentContext)
+        break
       case 'direct_answer':
-        result = await handleDirectAnswer(message.trim(), gymContext)
+        result = await handleDirectAnswer(message.trim(), gymContext, subAgentContext)
         break
       case 'inline_query':
         result = await handleInlineQuery(message.trim(), richContext)
         break
       case 'prebuilt_specialist':
-        // Prebuilt specialist also benefits from live data
         result = await handleInlineQuery(message.trim(), richContext)
         break
       case 'dynamic_specialist':
         result = await handleDynamicSpecialist(message.trim(), gymContext)
         break
       default:
-        result = await handleDirectAnswer(message.trim(), gymContext)
+        result = await handleDirectAnswer(message.trim(), gymContext, subAgentContext)
     }
 
     const actionType = inferActionType(result.reply, route)
 
     // 5. Log assistant reply
     await appendChatMessage({
-      gymId,
+      accountId,
       role: 'assistant',
       content: result.reply,
       route,
@@ -282,6 +394,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       reply: result.reply,
       route,
       actionType,
+      taskId: result.taskId,
       thinkingSteps: result.thinkingSteps,
     }
 

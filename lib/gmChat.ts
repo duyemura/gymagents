@@ -6,16 +6,17 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk'
+import { SONNET, HAIKU } from './models'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type TaskRoute = 'direct_answer' | 'inline_query' | 'prebuilt_specialist' | 'dynamic_specialist'
+export type TaskRoute = 'direct_answer' | 'inline_query' | 'prebuilt_specialist' | 'dynamic_specialist' | 'create_task'
 
 export type ActionType = 'answer' | 'data_table' | 'recommendation' | 'task_created' | 'clarify'
 
 export interface GMChatMessage {
   id?: string
-  gymId?: string
+  accountId?: string
   role: 'user' | 'assistant' | 'system_event'
   content: string
   route?: string
@@ -28,7 +29,7 @@ export interface GMChatMessage {
 
 export interface GMChatRequest {
   message: string
-  gymId: string
+  accountId: string
   conversationHistory?: GMChatMessage[]
 }
 
@@ -41,10 +42,9 @@ export interface GMChatResponse {
   thinkingSteps?: string[]
 }
 
-export interface GymContext {
-  gymId: string
-  gymName: string
-  memberCount: number
+export interface AccountContext {
+  accountId: string
+  accountName: string
 }
 
 // ── Specialist prompts ────────────────────────────────────────────────────────
@@ -75,6 +75,7 @@ const VALID_ROUTES = new Set<TaskRoute>([
   'inline_query',
   'prebuilt_specialist',
   'dynamic_specialist',
+  'create_task',
 ])
 
 export async function classifyTask(message: string): Promise<TaskRoute> {
@@ -85,13 +86,14 @@ export async function classifyTask(message: string): Promise<TaskRoute> {
 - inline_query: needs one PushPress data fetch (members, checkins, enrollments, waivers)
 - prebuilt_specialist: complex analysis — churn, revenue trends, lead funnel
 - dynamic_specialist: novel task that doesn't fit above categories
+- create_task: owner wants to create a task, set up a monitor, track something, or assign work to an agent
 
 Request: "${message}"
 
 Reply with ONLY the category name, nothing else.`
 
   const response = await client.messages.create({
-    model: 'claude-haiku-4-5',
+    model: HAIKU,
     max_tokens: 20,
     messages: [{ role: 'user', content: classificationPrompt }],
   })
@@ -115,7 +117,7 @@ Reply with ONLY the category name, nothing else.`
 export async function claudeRespond(
   systemPrompt: string,
   userMessage: string,
-  model: 'claude-haiku-4-5' | 'claude-sonnet-4-5' = 'claude-sonnet-4-5',
+  model: typeof HAIKU | typeof SONNET = SONNET,
 ): Promise<string> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -132,9 +134,26 @@ export async function claudeRespond(
 
 // ── buildGymSystemPrompt ──────────────────────────────────────────────────────
 
-export function buildGymSystemPrompt(gymContext: GymContext): string {
-  return `You are the GM Agent for ${gymContext.gymName}, a boutique fitness gym with ${gymContext.memberCount} members.
-You are a trusted advisor to the gym owner. Be direct, practical, and warm — like a knowledgeable colleague who knows the business.
-Never use the word "AI" or "agent". Speak as if you know this gym personally.
+export function buildGymSystemPrompt(gymContext: AccountContext): string {
+  return `You are the GM Agent for ${gymContext.accountName}.
+You are a trusted advisor to the business owner. Be direct, practical, and warm — like a knowledgeable colleague who knows the business.
+Never use the word "AI" or "agent". Speak as if you know this business personally.
 Keep responses concise. If you need data you don't have, say what you'd look for.`
+}
+
+// ── buildGMSystemPromptWithAgents ─────────────────────────────────────────────
+// Enhanced system prompt that includes sub-agent capability context.
+// subAgentContext is loaded from .agents/agents/*.md files (server-side only).
+
+export function buildGMSystemPromptWithAgents(
+  gymContext: AccountContext,
+  subAgentContext: string,
+): string {
+  return `${buildGymSystemPrompt(gymContext)}
+
+## Sub-agents You Can Delegate To
+
+${subAgentContext}
+
+When an owner asks you to create a task or assign work, extract: goal, which agent should own it, and the task type. Confirm what you created.`
 }

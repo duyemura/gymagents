@@ -8,7 +8,7 @@ export default function ConnectPage() {
   const [apiKey, setApiKey] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState<{ gymName: string; memberCount: number } | null>(null)
+  const [success, setSuccess] = useState<{ accountName: string; memberCount: number } | null>(null)
   const router = useRouter()
 
   const handleConnect = async (e: React.FormEvent) => {
@@ -25,8 +25,8 @@ export default function ConnectPage() {
       if (!res.ok) {
         setError(data.error ?? 'Something went wrong — please check your API key and try again.')
       } else {
-        setSuccess({ gymName: data.gymName, memberCount: data.memberCount })
-        setTimeout(() => router.push('/dashboard'), 2500)
+        setSuccess({ accountName: data.accountName, memberCount: data.memberCount })
+        setTimeout(() => router.push('/setup'), 2500)
       }
     } catch {
       setError('Something went wrong — please try again.')
@@ -40,16 +40,16 @@ export default function ConnectPage() {
         <div className="bg-white border border-gray-200 p-10 text-center max-w-md w-full">
           <div className="text-5xl mb-4">🏋️</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            {success.gymName} is connected!
+            {success.accountName} is connected!
           </h2>
           <p className="text-gray-500 text-sm mb-6">
             {success.memberCount > 0
-              ? `${success.memberCount} members loaded. Your agents are ready.`
-              : 'Your agents are ready.'}
+              ? `${success.memberCount} members loaded. Let's build your first agent.`
+              : "Connected. Let's build your first agent."}
           </p>
           <div className="flex items-center justify-center gap-2" style={{ color: '#0063FF' }}>
             <div className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#0063FF' }} />
-            <span className="text-sm font-medium">Taking you to your dashboard…</span>
+            <span className="text-sm font-medium">Setting up your workspace…</span>
           </div>
         </div>
       </div>

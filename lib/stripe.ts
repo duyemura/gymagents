@@ -1,7 +1,12 @@
 import Stripe from 'stripe'
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20' as any
+// Lazy singleton — avoids module-level init crashing Next.js build
+let _stripe: Stripe | null = null
+export const stripe = new Proxy({} as Stripe, {
+  get(_, prop) {
+    if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' as any })
+    return (_stripe as any)[prop]
+  },
 })
 
 export const PLANS = {

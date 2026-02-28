@@ -1,7 +1,14 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react'
 import type { GMChatMessage } from '@/lib/gmChat'
+import AnalysisProgress from '@/components/AnalysisProgress'
+
+export interface GMChatHandle {
+  addMessage: (msg: Omit<GMChatMessage, 'id'>) => void
+  updateLastMessage: (content: string) => void
+  sendMessage: (text: string) => void
+}
 
 // ── Demo seed data ────────────────────────────────────────────────────────────
 
@@ -9,51 +16,27 @@ const DEMO_HISTORY: GMChatMessage[] = [
   {
     id: 'demo-sys-1',
     role: 'system_event',
-    content: 'GM ran analysis. Found 3 insights, added to your To-Do.',
-    createdAt: new Date(Date.now() - 4 * 3_600_000).toISOString(), // 4h ago
-  },
-  {
-    id: 'demo-user-1',
-    role: 'user',
-    content: "Who hasn't signed a waiver this month?",
-    createdAt: new Date(Date.now() - 2 * 3_600_000 - 10 * 60_000).toISOString(),
-  },
-  {
-    id: 'demo-gm-1',
-    role: 'assistant',
-    content: '4 members: Derek Walsh, Priya Patel, Tom Chen, and Sarah K. Derek and Priya have been members 30+ days — worth following up directly.',
-    actionType: 'data_table',
-    data: [
-      { name: 'Derek Walsh', email: 'derek@example.com', memberSince: '60 days ago' },
-      { name: 'Priya Patel', email: 'priya@example.com', memberSince: '45 days ago' },
-      { name: 'Tom Chen', email: 'tom@example.com', memberSince: '12 days ago' },
-      { name: 'Sarah K.', email: 'sarah@example.com', memberSince: '8 days ago' },
-    ],
-    route: 'inline_query',
-    createdAt: new Date(Date.now() - 2 * 3_600_000 - 9 * 60_000).toISOString(),
-  },
-  {
-    id: 'demo-user-2',
-    role: 'user',
-    content: 'Draft a reminder for Derek and Priya',
+    content: 'GM ran analysis on PushPress East. Found at-risk members, tasks added to To-Do.',
     createdAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
-  },
-  {
-    id: 'demo-gm-2',
-    role: 'assistant',
-    content: `Here's a starting point:\n\n"Hey Derek — just checking in! Before your next class, we need your waiver on file. Takes about 30 seconds: [link]. See you on the floor!"\n\nSame message works for Priya — just swap the name.`,
-    route: 'direct_answer',
-    createdAt: new Date(Date.now() - 2 * 3_600_000 + 30_000).toISOString(),
   },
 ]
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+export interface QuickAction {
+  label: string
+  onAction: () => void
+}
+
 export interface GMChatProps {
-  gymId: string
+  accountId: string
   isDemo: boolean
+  agentName?: string
   initialHistory?: GMChatMessage[]
   onTaskCreated?: (taskId: string) => void
+  onRunAnalysis?: () => void
+  quickActions?: QuickAction[]
+  analysisProgress?: { steps: string[]; isRunning: boolean; onDismiss?: () => void }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -195,15 +178,36 @@ function MessageBubble({ msg }: { msg: GMChatMessage }) {
 
 // ── Main GMChat component ─────────────────────────────────────────────────────
 
-export default function GMChat({
-  gymId,
+const GMChat = forwardRef<GMChatHandle, GMChatProps>(function GMChat({
+  accountId,
   isDemo,
+  agentName,
   initialHistory,
   onTaskCreated,
-}: GMChatProps) {
+  onRunAnalysis,
+  quickActions,
+  analysisProgress,
+}, ref) {
   const [messages, setMessages] = useState<GMChatMessage[]>(
     initialHistory ?? (isDemo ? DEMO_HISTORY : []),
   )
+
+  // Ref to always hold the latest sendMessage — avoids stale closure in useImperativeHandle
+  const sendMessageRef = useRef<(text: string) => void>(() => {})
+
+  useImperativeHandle(ref, () => ({
+    addMessage: (msg) => {
+      setMessages(prev => [...prev, { id: `ext-${Date.now()}`, ...msg }])
+    },
+    updateLastMessage: (content: string) => {
+      setMessages(prev => {
+        if (prev.length === 0) return prev
+        const last = prev[prev.length - 1]
+        return [...prev.slice(0, -1), { ...last, content }]
+      })
+    },
+    sendMessage: (text: string) => sendMessageRef.current(text),
+  }))
   const [input, setInput] = useState('')
   const [isThinking, setIsThinking] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -217,8 +221,8 @@ export default function GMChat({
     inputBarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, isThinking])
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim()
+  const sendMessage = useCallback(async (textOverride?: string) => {
+    const text = (textOverride ?? input).trim()
     if (!text || isThinking) return
 
     const userMsg: GMChatMessage = {
@@ -232,21 +236,18 @@ export default function GMChat({
     setInput('')
     setIsThinking(true)
 
-    // Demo mode hits the real API with PushPress East credentials — no fake responses
     try {
       const res = await fetch('/api/gm/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          gymId,
-          conversationHistory: messages.slice(-10), // last 10 for context
+          accountId,
+          conversationHistory: messages.slice(-10),
         }),
       })
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
       const data = await res.json()
       const assistantMsg: GMChatMessage = {
@@ -263,21 +264,22 @@ export default function GMChat({
 
       setMessages(prev => [...prev, assistantMsg])
 
-      if (data.taskId && onTaskCreated) {
-        onTaskCreated(data.taskId)
-      }
-    } catch (err) {
-      const errMsg: GMChatMessage = {
+      if (data.taskId && onTaskCreated) onTaskCreated(data.taskId)
+      if (data.route === 'run_analysis' && onRunAnalysis) onRunAnalysis()
+    } catch {
+      setMessages(prev => [...prev, {
         id: `err-${Date.now()}`,
         role: 'assistant',
         content: 'Something went wrong. Please try again.',
         createdAt: new Date().toISOString(),
-      }
-      setMessages(prev => [...prev, errMsg])
+      }])
     } finally {
       setIsThinking(false)
     }
-  }, [input, isThinking, gymId, isDemo, messages, onTaskCreated])
+  }, [input, isThinking, accountId, messages, onTaskCreated, onRunAnalysis])
+
+  // Keep ref in sync so useImperativeHandle always calls the latest version
+  useEffect(() => { sendMessageRef.current = sendMessage }, [sendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -299,10 +301,10 @@ export default function GMChat({
       <div className="flex-shrink-0 px-4 py-3 border-b border-gray-100">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: '#22C55E' }} />
-          <span className="text-sm font-semibold text-gray-900">GM Agent</span>
+          <span className="text-sm font-semibold text-gray-900">{agentName || 'GM Agent'}</span>
           <span className="text-[10px] font-semibold" style={{ color: '#22C55E' }}>Active</span>
         </div>
-        <p className="text-xs text-gray-400 mt-0.5">Ask anything about your gym</p>
+        <p className="text-xs text-gray-400 mt-0.5">Ask anything about your business</p>
       </div>
 
       {/* ── Messages ── */}
@@ -339,6 +341,31 @@ export default function GMChat({
 
         <div ref={bottomRef} />
       </div>
+
+      {/* ── Analysis progress — inline below chat bubbles ── */}
+      {analysisProgress && (analysisProgress.isRunning || analysisProgress.steps.length > 0) && (
+        <AnalysisProgress
+          steps={analysisProgress.steps}
+          isRunning={analysisProgress.isRunning}
+          onDismiss={analysisProgress.onDismiss ?? (() => {})}
+        />
+      )}
+
+      {/* ── Quick actions ── */}
+      {quickActions && quickActions.length > 0 && (
+        <div className="flex-shrink-0 px-3 pb-2 flex flex-wrap gap-1.5">
+          {quickActions.map((qa, i) => (
+            <button
+              key={i}
+              onClick={() => qa.onAction()}
+              disabled={isThinking}
+              className="text-[10px] font-semibold px-2.5 py-1 border border-gray-200 text-gray-500 transition-colors hover:border-blue-400 hover:text-blue-600 disabled:opacity-40"
+            >
+              {qa.label} →
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Input ── */}
       <div ref={inputBarRef} className="flex-shrink-0 border-t border-gray-100 p-3">
@@ -384,4 +411,6 @@ export default function GMChat({
       </div>
     </div>
   )
-}
+})
+
+export default GMChat
