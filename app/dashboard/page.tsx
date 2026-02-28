@@ -356,6 +356,15 @@ function DashboardContent() {
     next_run_at: a.next_run_at ?? null,
   }))
 
+  // Default chat to GM agent once data is loaded
+  const gmAgent = agentsWithStats.find((a: any) => a.skill_type === 'gm')
+  useEffect(() => {
+    if (gmAgent && !chatSession && !isDemo) {
+      setChatSession({ agentId: gmAgent.id, agentName: gmAgent.name, startedAt: Date.now() })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gmAgent?.id])
+
   // Build de-duped, non-dismissed action list
   const allActions: ActionCard[] = [
     ...(data?.pendingActions || []),
@@ -444,6 +453,7 @@ function DashboardContent() {
               <AgentEditor
                 agent={editingAgent}
                 isDemo={isDemo}
+                accountName={accountName}
                 onBack={() => setEditingAgent(undefined)}
                 onSaved={async () => {
                   setEditingAgent(undefined)
@@ -522,6 +532,7 @@ function DashboardContent() {
               <AgentEditor
                 agent={editingAgent}
                 isDemo={isDemo}
+                accountName={accountName}
                 onBack={() => setEditingAgent(undefined)}
                 onSaved={async () => {
                   setEditingAgent(undefined)

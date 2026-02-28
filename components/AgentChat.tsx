@@ -369,23 +369,27 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
               setSessionId(event.sessionId ?? null)
               break
 
-            case 'message':
+            case 'message': {
               // Accumulate assistant text — emit as one message when done
               assistantBuffer += (assistantBuffer ? '\n' : '') + (event.content ?? '')
+              // Snapshot the buffer value so it isn't clobbered by later events
+              // before React commits this state update
+              const snapshot = assistantBuffer
               // Update the last assistant message in real-time
               setMessages(prev => {
                 const last = prev[prev.length - 1]
                 if (last?.role === 'assistant' && last.id.startsWith('streaming-')) {
-                  return [...prev.slice(0, -1), { ...last, content: assistantBuffer }]
+                  return [...prev.slice(0, -1), { ...last, content: snapshot }]
                 }
                 return [...prev, {
                   id: `streaming-${Date.now()}`,
                   role: 'assistant',
-                  content: assistantBuffer,
+                  content: snapshot,
                   timestamp: new Date().toISOString(),
                 }]
               })
               break
+            }
 
             case 'tool_call':
               assistantBuffer = '' // reset for next message
@@ -429,16 +433,23 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
 
             case 'done':
               setStatus('completed')
-              // Finalize the streaming assistant message ID so it's stable
-              if (assistantBuffer) {
-                setMessages(prev => {
-                  const last = prev[prev.length - 1]
-                  if (last?.role === 'assistant' && last.id.startsWith('streaming-')) {
-                    return [...prev.slice(0, -1), { ...last, id: `msg-${Date.now()}` }]
-                  }
-                  return prev
-                })
-              }
+              setMessages(prev => {
+                const last = prev[prev.length - 1]
+                if (last?.role === 'assistant' && last.id.startsWith('streaming-')) {
+                  // Normal path: finalize the streaming message's ID
+                  return [...prev.slice(0, -1), { ...last, id: `msg-${Date.now()}` }]
+                }
+                // Fallback: streaming message was lost — use done.summary directly
+                if (event.summary && !prev.some(m => m.role === 'assistant')) {
+                  return [...prev, {
+                    id: `msg-${Date.now()}`,
+                    role: 'assistant' as const,
+                    content: event.summary,
+                    timestamp: new Date().toISOString(),
+                  }]
+                }
+                return prev
+              })
               assistantBuffer = ''
               onComplete?.()
               break

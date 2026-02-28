@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { encrypt } from '@/lib/encrypt'
 import { createPushPressClient, getMemberStats } from '@/lib/pushpress'
 import { registerGymAgentsWebhook } from '@/lib/pushpress-sdk'
-import { bootstrapBusinessProfile } from '@/lib/agents/bootstrap'
+import { bootstrapBusinessProfile, seedGMAgent } from '@/lib/agents/bootstrap'
 import { callClaude } from '@/lib/claude'
 import { HAIKU } from '@/lib/models'
 import { getAccountForUser } from '@/lib/db/accounts'
@@ -153,7 +153,12 @@ export async function POST(req: NextRequest) {
       console.error('[connect] Webhook registration failed:', err.message)
     }
 
-    // ── Step 5: Bootstrap business profile (fire-and-forget) ─────────────────
+    // ── Step 5: Seed GM agent (idempotent) ───────────────────────────────────
+    seedGMAgent(accountId).catch(err =>
+      console.error('[connect] GM seed failed:', (err as Error).message)
+    )
+
+    // ── Step 6: Bootstrap business profile (fire-and-forget) ─────────────────
     bootstrapBusinessProfile(
       { accountId, accountName, memberCount },
       { claude: { evaluate: (system, prompt) => callClaude(system, prompt, HAIKU) } },

@@ -10,6 +10,7 @@ export interface AgentWithStats {
   description?: string
   skill_type: string
   is_active: boolean
+  is_system?: boolean
   trigger_mode: string
   cron_schedule?: string
   run_hour?: number
@@ -152,13 +153,15 @@ function AgentRow({ agent, isDemo, onSelect, onToggle, onDelete, onChat }: {
       {/* Actions */}
       {!isDemo && (
         <div className="flex-shrink-0 flex items-center gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => onChat?.(agent)}
-            className="text-[10px] font-semibold px-1.5 py-0.5 transition-colors"
-            style={{ color: '#0063FF' }}
-          >
-            Chat
-          </button>
+          {active && (
+            <button
+              onClick={() => onChat?.(agent)}
+              className="text-[10px] font-semibold px-1.5 py-0.5 transition-colors"
+              style={{ color: '#0063FF' }}
+            >
+              Chat
+            </button>
+          )}
           <button
             onClick={() => onSelect?.(agent)}
             className="text-[10px] text-gray-400 hover:text-gray-700 px-1.5 py-0.5 transition-colors"
@@ -191,7 +194,9 @@ function AgentRow({ agent, isDemo, onSelect, onToggle, onDelete, onChat }: {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export default function AgentRoster({ agents, isDemo, onSelect, onToggle, onDelete, onAddAgent, onChat }: AgentRosterProps) {
-  const activeCount = agents.filter(a => a.is_active).length
+  const gm = agents.find(a => a.skill_type === 'gm')
+  const workflowAgents = agents.filter(a => a.skill_type !== 'gm')
+  const activeCount = workflowAgents.filter(a => a.is_active).length
 
   return (
     <div className="flex flex-col h-full">
@@ -217,26 +222,64 @@ export default function AgentRoster({ agents, isDemo, onSelect, onToggle, onDele
         )}
       </div>
 
-      {/* List or empty state */}
-      {agents.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center px-8 py-12 text-center">
-          <div>
-            <p className="text-sm text-gray-500 mb-1">No agents yet</p>
-            <p className="text-xs text-gray-400 mb-5 max-w-xs">
-              Create your first agent to start monitoring your clients automatically.
-            </p>
-            <button
-              onClick={onAddAgent}
-              className="text-xs font-medium text-white px-4 py-1.5 transition-opacity hover:opacity-80"
-              style={{ backgroundColor: '#0063FF' }}
+      <div className="overflow-y-auto flex-1">
+        {/* GM — pinned at top */}
+        {gm && (
+          <div className="border-b border-gray-100">
+            <div
+              className="group flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+              onClick={() => onChat?.(gm)}
             >
-              Create your first agent →
-            </button>
+              <div
+                className="w-6 h-6 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-white"
+                style={{ backgroundColor: '#0063FF' }}
+              >
+                G
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-gray-900">GM</span>
+                  <span
+                    className="text-[10px] font-semibold tracking-widest uppercase px-1.5 py-0.5"
+                    style={{ backgroundColor: 'rgba(0,99,255,0.08)', color: '#0063FF' }}
+                  >
+                    Always on
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 truncate">{gm.description ?? 'Your always-on business assistant'}</p>
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); onChat?.(gm) }}
+                className="flex-shrink-0 text-[10px] font-semibold px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{ backgroundColor: 'rgba(0,99,255,0.08)', color: '#0063FF' }}
+              >
+                Chat →
+              </button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="overflow-y-auto flex-1">
-          {agents.map(agent => (
+        )}
+
+        {/* Workflow agents */}
+        {workflowAgents.length === 0 ? (
+          <div className="flex items-center justify-center px-8 py-12 text-center">
+            <div>
+              <p className="text-sm text-gray-500 mb-1">No agents yet</p>
+              <p className="text-xs text-gray-400 mb-5 max-w-xs">
+                Create your first agent to start monitoring your clients automatically.
+              </p>
+              {!isDemo && (
+                <button
+                  onClick={onAddAgent}
+                  className="text-xs font-medium text-white px-4 py-1.5 transition-opacity hover:opacity-80"
+                  style={{ backgroundColor: '#0063FF' }}
+                >
+                  Create your first agent →
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          workflowAgents.map(agent => (
             <AgentRow
               key={agent.id}
               agent={agent}
@@ -246,9 +289,9 @@ export default function AgentRoster({ agents, isDemo, onSelect, onToggle, onDele
               onDelete={onDelete}
               onChat={onChat}
             />
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   )
 }

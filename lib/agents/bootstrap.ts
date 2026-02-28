@@ -15,6 +15,29 @@
 import { supabaseAdmin } from '../supabase'
 import { createMemory } from '../db/memories'
 
+// ── GM Agent seeding ──────────────────────────────────────────────────────────
+
+/**
+ * Ensure every account has a GM agent.
+ * Idempotent — safe to call on every connect (upserts on account_id + skill_type).
+ */
+export async function seedGMAgent(accountId: string): Promise<void> {
+  await supabaseAdmin
+    .from('agents')
+    .upsert(
+      {
+        account_id: accountId,
+        name: 'GM',
+        skill_type: 'gm',
+        description: 'Your always-on business assistant. Ask anything.',
+        trigger_mode: 'manual',
+        is_active: true,
+        is_system: true,
+      },
+      { onConflict: 'account_id,skill_type', ignoreDuplicates: true },
+    )
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface BootstrapParams {
@@ -41,7 +64,7 @@ export interface BootstrapDeps {
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are analyzing a new business that just connected to a member retention platform. Create a concise business profile that helps AI agents communicate on their behalf. Respond with valid JSON only — no markdown fences.`
+const SYSTEM_PROMPT = `You are analyzing a new business that just connected to a member retention platform. Create a concise business profile that helps AI agents communicate on their behalf. Respond with valid JSON only, no markdown fences.`
 
 function buildUserPrompt(accountName: string, memberCount: number): string {
   return `Business name: ${accountName}
@@ -51,7 +74,7 @@ Infer the business type from the name and write a profile AI agents can use when
 
 Return JSON only:
 {
-  "business_type_tag": "snake_case tag — e.g. crossfit_gym, yoga_studio, bjj_school, pilates_studio, boot_camp, martial_arts, dance_studio, fitness_gym",
+  "business_type_tag": "snake_case tag, e.g. crossfit_gym, yoga_studio, bjj_school, pilates_studio, boot_camp, martial_arts, dance_studio, fitness_gym",
   "profile": "2-3 sentence profile: what type of business, typical member vibe, normal attendance frequency, preferred communication tone, sign-off style"
 }`
 }
@@ -91,7 +114,7 @@ export async function bootstrapBusinessProfile(
     businessTypeTag: (parsed.business_type_tag as string) || 'fitness_business',
     profile:
       (parsed.profile as string) ||
-      `${accountName} — fitness business with ${memberCount} active members.`,
+      `${accountName}, fitness business with ${memberCount} active members.`,
   }
 
   // Write the business profile as a memory (Layer 3 of the prompt stack)
