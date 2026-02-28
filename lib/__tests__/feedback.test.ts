@@ -32,9 +32,28 @@ vi.mock('@/lib/auth', () => ({
 // ── Mock supabase ──────────────────────────────────────────────────────────
 
 const mockFrom = vi.fn()
+const mockStorageGetBucket = vi.fn()
+const mockStorageCreateBucket = vi.fn()
+const mockStorageUpload = vi.fn()
+const mockStorageGetPublicUrl = vi.fn()
 
 vi.mock('@/lib/supabase', () => ({
-  supabaseAdmin: { from: (...args: any[]) => mockFrom(...args) },
+  supabaseAdmin: {
+    from: (...args: any[]) => mockFrom(...args),
+    storage: {
+      getBucket: (...args: any[]) => mockStorageGetBucket(...args),
+      createBucket: (...args: any[]) => mockStorageCreateBucket(...args),
+      from: () => ({
+        upload: (...args: any[]) => mockStorageUpload(...args),
+        getPublicUrl: (...args: any[]) => mockStorageGetPublicUrl(...args),
+      }),
+    },
+  },
+}))
+
+const mockCreateFeedbackIssue = vi.fn()
+vi.mock('@/lib/linear', () => ({
+  createFeedbackIssue: (...args: any[]) => mockCreateFeedbackIssue(...args),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -77,6 +96,12 @@ describe('POST /api/feedback', () => {
     vi.resetModules()
     mockSessionRef.current = null
     mockFrom.mockReset()
+    mockStorageGetBucket.mockReset()
+    mockStorageCreateBucket.mockReset()
+    mockStorageUpload.mockReset()
+    mockStorageGetPublicUrl.mockReset()
+    mockCreateFeedbackIssue.mockReset()
+    mockCreateFeedbackIssue.mockResolvedValue(null) // Linear not configured by default
     const mod = await import('@/app/api/feedback/route')
     POST = mod.POST
   })
@@ -153,6 +178,46 @@ describe('POST /api/feedback', () => {
     expect(res.status).toBe(500)
     const json = await res.json()
     expect(json.error).toMatch(/Failed to save/)
+  })
+
+  it('uploads screenshot to storage when provided', async () => {
+    // Mock storage: bucket exists
+    mockStorageGetBucket.mockResolvedValue({ data: { name: 'feedback-screenshots' } })
+    mockStorageUpload.mockResolvedValue({ error: null })
+    mockStorageGetPublicUrl.mockReturnValue({
+      data: { publicUrl: 'https://storage.example.com/screenshots/test.png' },
+    })
+
+    const { insertFn } = setupInsertMock({ data: { id: 'fb-ss' }, error: null })
+
+    // Small valid base64 PNG (1x1 transparent pixel)
+    const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
+
+    const res = await POST(makeRequest('POST', {
+      message: 'UI is broken',
+      type: 'bug',
+      screenshot: tinyPng,
+    }))
+
+    expect(res.status).toBe(201)
+    // Verify screenshot_url was stored in metadata
+    const insertArg = insertFn.mock.calls[0][0]
+    expect(insertArg.metadata.screenshot_url).toBe('https://storage.example.com/screenshots/test.png')
+  })
+
+  it('succeeds even if screenshot upload fails', async () => {
+    mockStorageGetBucket.mockResolvedValue({ data: null })
+    mockStorageCreateBucket.mockResolvedValue({ error: null })
+    mockStorageUpload.mockResolvedValue({ error: { message: 'upload failed' } })
+
+    setupInsertMock({ data: { id: 'fb-noss' }, error: null })
+
+    const res = await POST(makeRequest('POST', {
+      message: 'Still works',
+      screenshot: 'data:image/png;base64,abc123',
+    }))
+
+    expect(res.status).toBe(201)
   })
 })
 

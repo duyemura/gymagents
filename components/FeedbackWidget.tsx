@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { getRecentErrorSummary } from '@/lib/feedback-errors'
 
 type FeedbackType = 'feedback' | 'bug' | 'suggestion'
@@ -11,28 +11,87 @@ const TYPE_LABELS: { value: FeedbackType; label: string }[] = [
   { value: 'suggestion', label: 'Suggestion' },
 ]
 
+/** Track recent pages visited for context */
+const navigationHistory: string[] = []
+const MAX_NAV_HISTORY = 10
+
+function trackNavigation() {
+  if (typeof window === 'undefined') return
+  const current = window.location.pathname + window.location.search
+  if (navigationHistory[navigationHistory.length - 1] !== current) {
+    navigationHistory.push(current)
+    if (navigationHistory.length > MAX_NAV_HISTORY) navigationHistory.shift()
+  }
+}
+
+/** Capture DOM screenshot via html2canvas */
+async function captureScreenshot(): Promise<string | null> {
+  try {
+    const html2canvas = (await import('html2canvas')).default
+    const canvas = await html2canvas(document.body, {
+      scale: 0.5,
+      logging: false,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#F8F9FB',
+      ignoreElements: (el) => {
+        return el.getAttribute('data-testid') === 'feedback-tab' ||
+          el.getAttribute('data-testid') === 'feedback-modal' ||
+          el.closest?.('[data-testid="feedback-modal"]') !== null
+      },
+    })
+    return canvas.toDataURL('image/png', 0.7)
+  } catch (err) {
+    console.warn('[feedback] Screenshot capture failed:', err)
+    return null
+  }
+}
+
 export default function FeedbackWidget() {
   const [isOpen, setIsOpen] = useState(false)
   const [type, setType] = useState<FeedbackType>('feedback')
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
+  const [includeScreenshot, setIncludeScreenshot] = useState(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // Track navigation on mount and route changes
   useEffect(() => {
-    if (isOpen && textareaRef.current) {
-      textareaRef.current.focus()
-    }
+    trackNavigation()
+    const observer = new MutationObserver(() => trackNavigation())
+    observer.observe(document.querySelector('title') || document.head, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    })
+    return () => observer.disconnect()
+  }, [])
+
+  // Auto-capture screenshot when the modal opens
+  const captureOnOpen = useCallback(async () => {
+    if (!isOpen) return
+    const shot = await captureScreenshot()
+    setScreenshotPreview(shot)
   }, [isOpen])
+
+  useEffect(() => {
+    if (isOpen) {
+      captureOnOpen()
+      if (textareaRef.current) textareaRef.current.focus()
+    }
+  }, [isOpen, captureOnOpen])
 
   // Reset state when closing
   useEffect(() => {
     if (!isOpen) {
-      // Delay reset so close animation can play
       const t = setTimeout(() => {
         setMessage('')
         setType('feedback')
         setSubmitted(false)
+        setScreenshotPreview(null)
+        setIncludeScreenshot(true)
       }, 200)
       return () => clearTimeout(t)
     }
@@ -51,10 +110,16 @@ export default function FeedbackWidget() {
           type,
           message: message.trim(),
           url: window.location.href,
+          screenshot: includeScreenshot ? screenshotPreview : undefined,
           metadata: {
             recentErrors: errorSummary || undefined,
             userAgent: navigator.userAgent,
             timestamp: new Date().toISOString(),
+            navigationHistory: navigationHistory.slice(),
+            viewport: {
+              width: window.innerWidth,
+              height: window.innerHeight,
+            },
           },
         }),
       })
@@ -69,44 +134,52 @@ export default function FeedbackWidget() {
 
   return (
     <>
-      {/* Floating trigger button */}
-      <button
-        data-testid="feedback-trigger"
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-5 right-5 z-50 flex items-center justify-center w-10 h-10 transition-opacity hover:opacity-80"
-        style={{
-          backgroundColor: '#0063FF',
-          color: '#fff',
-          border: 'none',
-          cursor: 'pointer',
-        }}
-        aria-label="Send feedback"
-      >
-        <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-          <path
-            d="M10 2C5.58 2 2 5.13 2 9c0 2.08 1.07 3.95 2.75 5.24L4 18l3.73-1.86C8.46 16.38 9.21 16.5 10 16.5c4.42 0 8-3.13 8-7s-3.58-7.5-8-7.5z"
-            fill="currentColor"
-            opacity="0.9"
-          />
-          <text x="7.5" y="12" fontSize="8" fontWeight="700" fill="#0063FF">?</text>
-        </svg>
-      </button>
+      {/* Right-edge tab — attached to browser edge, vertically centered */}
+      {!isOpen && (
+        <button
+          data-testid="feedback-tab"
+          onClick={() => setIsOpen(true)}
+          className="fixed z-50 flex items-center justify-center transition-opacity hover:opacity-80"
+          style={{
+            right: 0,
+            top: '50%',
+            transform: 'translateY(-50%) rotate(-90deg)',
+            transformOrigin: 'bottom right',
+            backgroundColor: '#0063FF',
+            color: '#fff',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '6px 14px',
+            fontSize: '11px',
+            fontWeight: 600,
+            letterSpacing: '0.05em',
+            textTransform: 'uppercase' as const,
+            whiteSpace: 'nowrap' as const,
+          }}
+          aria-label="Send feedback"
+        >
+          Feedback
+        </button>
+      )}
 
       {/* Modal overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-end p-5"
+          className="fixed inset-0 z-50 flex items-center justify-end"
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsOpen(false)
           }}
         >
-          {/* Modal card */}
+          {/* Modal card — anchored to right edge, vertically centered */}
           <div
             data-testid="feedback-modal"
-            className="w-80 border flex flex-col"
+            className="w-80 border flex flex-col mr-0"
             style={{
               backgroundColor: '#fff',
               borderColor: '#E5E7EB',
+              borderRight: 'none',
+              maxHeight: '80vh',
+              overflowY: 'auto',
             }}
           >
             {/* Header */}
@@ -184,6 +257,41 @@ export default function FeedbackWidget() {
                     }}
                   />
                 </div>
+
+                {/* Screenshot preview */}
+                {screenshotPreview && (
+                  <div className="px-4 pb-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={includeScreenshot}
+                        onChange={(e) => setIncludeScreenshot(e.target.checked)}
+                        className="accent-blue-500"
+                      />
+                      <span className="text-[10px] font-semibold tracking-widest uppercase text-gray-400">
+                        Include screenshot
+                      </span>
+                    </label>
+                    {includeScreenshot && (
+                      <div
+                        className="mt-1.5 border overflow-hidden cursor-pointer"
+                        style={{ borderColor: '#E5E7EB', maxHeight: '80px' }}
+                        onClick={() => {
+                          const w = window.open()
+                          if (w) {
+                            w.document.write(`<img src="${screenshotPreview}" style="max-width:100%"/>`)
+                          }
+                        }}
+                      >
+                        <img
+                          src={screenshotPreview}
+                          alt="Screenshot preview"
+                          style={{ width: '100%', display: 'block' }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Footer */}
                 <div className="px-4 pb-3 flex items-center justify-between">
