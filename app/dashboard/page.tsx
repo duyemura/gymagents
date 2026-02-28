@@ -160,7 +160,8 @@ function DashboardContent() {
   const [sendingEmail, setSendingEmail] = useState(false)
   const [selectedAction, setSelectedAction] = useState<ActionCard | null>(null)
   const [mobileTab, setMobileTab] = useState<'queue' | 'chat' | 'memories' | 'settings'>('queue')
-  const [activeSection, setActiveSection] = useState<'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'integrations' | 'settings'>('gm')
+  type NavSection = 'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'integrations' | 'settings'
+  const [activeSection, setActiveSection] = useState<NavSection>('gm')
   const [editingAgent, setEditingAgent] = useState<any | null>(undefined) // undefined = list, null = new, object = edit
   const [chatSession, setChatSession] = useState<{ agentId: string; agentName: string; startedAt: number } | null>(null)
 
@@ -200,16 +201,27 @@ function DashboardContent() {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  // Default to GM section in demo
+  // Sync URL → section state (handles reload, browser back/forward, OAuth callback)
+  const VALID_SECTIONS: NavSection[] = ['gm', 'agents', 'memories', 'skills', 'improvements', 'integrations', 'settings']
   useEffect(() => {
-    if (isDemo) setActiveSection('gm')
-  }, [isDemo])
+    if (isDemo) { setActiveSection('gm'); return }
+    const section = searchParams.get('section') as NavSection | null
+    if (section && VALID_SECTIONS.includes(section)) {
+      setActiveSection(section)
+    } else if (!section) {
+      setActiveSection('gm')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, isDemo])
 
-  // Jump to section from query param (e.g. OAuth callback: ?section=integrations)
-  useEffect(() => {
-    const section = searchParams.get('section')
-    if (section === 'integrations') setActiveSection('integrations')
-  }, [searchParams])
+  // Navigate to a section — updates both state and URL so history + reload work
+  const navigate = (section: NavSection) => {
+    setActiveSection(section)
+    if (!isDemo) {
+      const url = section === 'gm' ? '/dashboard' : `/dashboard?section=${section}`
+      router.push(url)
+    }
+  }
 
   // Show welcome modal once per session for sandbox demo
   useEffect(() => {
@@ -244,7 +256,7 @@ function DashboardContent() {
     setRunning(true)
     setRunResult(null)
     setAnalysisSteps([])
-    setActiveSection('gm')
+    navigate('gm')
 
     try {
       const response = await fetch('/api/agents/run', { method: 'POST' })
@@ -631,7 +643,7 @@ function DashboardContent() {
                 <AgentRoster
                   agents={agentsWithStats}
                   isDemo={isDemo}
-                  onSelect={agent => { setEditingAgent(agent); setActiveSection('agents') }}
+                  onSelect={agent => { setEditingAgent(agent); navigate('agents') }}
                   onToggle={(skillType, isActive) => {
                     if (data) setData({ ...data, agents: (data.agents ?? []).map((a: any) =>
                       a.skill_type === skillType ? { ...a, is_active: isActive } : a
@@ -640,7 +652,7 @@ function DashboardContent() {
                   onDelete={agentId => {
                     if (data) setData({ ...data, agents: (data.agents ?? []).filter((a: any) => a.id !== agentId) })
                   }}
-                  onAddAgent={() => { setEditingAgent(null); setActiveSection('agents') }}
+                  onAddAgent={() => { setEditingAgent(null); navigate('agents') }}
                   onChat={agent => setChatSession({ agentId: agent.id, agentName: agent.name, startedAt: Date.now() })}
                 />
               </div>
@@ -775,7 +787,7 @@ function DashboardContent() {
         mobileTab={mobileTab}
         onMobileTabChange={setMobileTab}
         activeSection={activeSection}
-        onSectionChange={(s) => setActiveSection(s as 'gm' | 'agents' | 'memories' | 'skills' | 'improvements' | 'integrations' | 'settings')}
+        onSectionChange={(s) => navigate(s as NavSection)}
         slidePanel={
           selectedAction ? (
             <ActionSlidePanel
