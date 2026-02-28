@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
-import { useRouter, useSearchParams, useParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import AppShell from '@/components/AppShell'
 import ReviewQueue from '@/components/ReviewQueue'
 import ActionSlidePanel from '@/components/ActionSlidePanel'
@@ -201,26 +201,30 @@ function DashboardContent() {
 
   useEffect(() => { fetchDashboard() }, [fetchDashboard])
 
-  // Sync URL path → section state (handles reload, browser back/forward)
+  // Read section from pathname (works on client only)
   const VALID_SECTIONS: NavSection[] = ['gm', 'agents', 'memories', 'skills', 'improvements', 'integrations', 'settings']
-  const params = useParams()
-  const pathSection = Array.isArray(params?.section) ? params.section[0] : (params?.section as string | undefined)
+  function sectionFromPath(): NavSection {
+    const match = window.location.pathname.match(/^\/dashboard\/(\w+)/)
+    const s = match?.[1] as NavSection | undefined
+    return s && VALID_SECTIONS.includes(s) ? s : 'gm'
+  }
 
+  // On mount: set section from URL; on back/forward: re-sync via popstate
   useEffect(() => {
     if (isDemo) { setActiveSection('gm'); return }
-    if (pathSection && VALID_SECTIONS.includes(pathSection as NavSection)) {
-      setActiveSection(pathSection as NavSection)
-    } else {
-      setActiveSection('gm')
-    }
+    setActiveSection(sectionFromPath())
+    const onPopState = () => setActiveSection(sectionFromPath())
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathSection, isDemo])
+  }, [isDemo])
 
-  // Navigate to a section — pretty path URL so history + reload work
+  // Navigate — instant state update + URL change, no Next.js router overhead
   const navigate = (section: NavSection) => {
     setActiveSection(section)
     if (!isDemo) {
-      router.push(section === 'gm' ? '/dashboard' : `/dashboard/${section}`)
+      const url = section === 'gm' ? '/dashboard' : `/dashboard/${section}`
+      window.history.pushState({}, '', url)
     }
   }
 
