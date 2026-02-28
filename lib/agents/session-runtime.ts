@@ -432,17 +432,17 @@ async function* executeLoop(
       }
     }
 
-    // If no tool use, we're done (or in turn_based, pause)
+    // If no tool use — pause for input (turn_based + semi_auto) or complete (full_auto)
     if (response.stop_reason !== 'tool_use') {
-      if (session.autonomyMode === 'turn_based') {
-        session.status = 'waiting_input'
-        yield { type: 'paused', reason: 'Waiting for your next message', status: 'waiting_input' }
-      } else {
+      if (session.autonomyMode === 'full_auto') {
         session.status = 'completed'
-        // Extract summary from last text block
         const lastText = response.content.find(b => b.type === 'text')
         const summary = lastText && lastText.type === 'text' ? lastText.text.slice(0, 200) : 'Session completed'
         yield { type: 'done', summary }
+      } else {
+        // turn_based and semi_auto both wait for the user to reply
+        session.status = 'waiting_input'
+        yield { type: 'paused', reason: 'Waiting for your next message', status: 'waiting_input' }
       }
       break
     }
