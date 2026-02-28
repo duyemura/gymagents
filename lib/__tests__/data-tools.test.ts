@@ -246,9 +246,26 @@ describe('data tools', () => {
     })
   })
 
+  describe('web_search', () => {
+    it('returns error when SERPER_API_KEY is not set', async () => {
+      const tool = findTool('web_search')
+      delete process.env.SERPER_API_KEY
+      const result = await tool.execute({ query: 'crossfit pricing' }, makeCtx()) as any
+      expect(result.error).toContain('not configured')
+    })
+  })
+
+  describe('web_fetch', () => {
+    it('returns error for unreachable URLs', async () => {
+      const tool = findTool('web_fetch')
+      const result = await tool.execute({ url: 'http://localhost:99999/nope' }, makeCtx()) as any
+      expect(result.error).toContain('Fetch failed')
+    })
+  })
+
   describe('tool group', () => {
-    it('has all 7 expected tools', () => {
-      expect(dataToolGroup.tools).toHaveLength(7)
+    it('has all 9 expected tools', () => {
+      expect(dataToolGroup.tools).toHaveLength(9)
       const names = dataToolGroup.tools.map(t => t.name)
       expect(names).toContain('get_members')
       expect(names).toContain('get_member_detail')
@@ -257,6 +274,8 @@ describe('data tools', () => {
       expect(names).toContain('get_checkins')
       expect(names).toContain('get_classes')
       expect(names).toContain('get_data_lenses')
+      expect(names).toContain('web_search')
+      expect(names).toContain('web_fetch')
     })
 
     it('none require approval', () => {

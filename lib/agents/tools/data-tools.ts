@@ -499,9 +499,142 @@ const getDataLenses: AgentTool = {
   },
 }
 
+// ── web_search ──────────────────────────────────────────────────────────
+
+const webSearch: AgentTool = {
+  name: 'web_search',
+  description: 'Search the web for information. Use this to research competitors, pricing, local market data, industry trends, or any topic. Returns top search results with titles, URLs, and snippets.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      query: { type: 'string', description: 'Search query' },
+      count: { type: 'number', description: 'Number of results (default 5, max 10)' },
+    },
+    required: ['query'],
+  },
+  requiresApproval: false,
+  async execute(input: Record<string, unknown>, _ctx: ToolContext) {
+    const query = input.query as string
+    const count = Math.min((input.count as number) || 5, 10)
+
+    const apiKey = process.env.SERPER_API_KEY
+    if (!apiKey) {
+      return { error: 'Web search not configured. Add SERPER_API_KEY to environment.' }
+    }
+
+    try {
+      const res = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-KEY': apiKey,
+        },
+        body: JSON.stringify({ q: query, num: count }),
+      })
+
+      if (!res.ok) {
+        return { error: `Search failed: ${res.status} ${res.statusText}` }
+      }
+
+      const data = await res.json()
+      const results = (data.organic ?? []).slice(0, count).map((r: any) => ({
+        title: r.title,
+        url: r.link,
+        snippet: r.snippet,
+      }))
+
+      // Include knowledge graph if available
+      const knowledgeGraph = data.knowledgeGraph
+        ? { title: data.knowledgeGraph.title, description: data.knowledgeGraph.description, attributes: data.knowledgeGraph.attributes }
+        : undefined
+
+      return {
+        query,
+        count: results.length,
+        results,
+        ...(knowledgeGraph ? { knowledgeGraph } : {}),
+      }
+    } catch (err: any) {
+      return { error: `Search failed: ${err.message}` }
+    }
+  },
+}
+
+// ── web_fetch ───────────────────────────────────────────────────────────
+
+const webFetch: AgentTool = {
+  name: 'web_fetch',
+  description: 'Fetch the text content of a specific web page URL. Use this to read articles, competitor websites, pricing pages, or any web content after finding URLs via web_search.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      url: { type: 'string', description: 'The URL to fetch' },
+      max_length: { type: 'number', description: 'Max characters to return (default 5000, max 15000)' },
+    },
+    required: ['url'],
+  },
+  requiresApproval: false,
+  async execute(input: Record<string, unknown>, _ctx: ToolContext) {
+    const url = input.url as string
+    const maxLength = Math.min((input.max_length as number) || 5000, 15000)
+
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; GymAgents/1.0)',
+          'Accept': 'text/html,application/xhtml+xml,text/plain',
+        },
+        signal: AbortSignal.timeout(10000),
+      })
+
+      if (!res.ok) {
+        return { error: `Fetch failed: ${res.status} ${res.statusText}` }
+      }
+
+      const contentType = res.headers.get('content-type') ?? ''
+      const html = await res.text()
+
+      // Extract text from HTML
+      let text: string
+      if (contentType.includes('text/plain') || contentType.includes('application/json')) {
+        text = html
+      } else {
+        // Strip HTML tags, scripts, styles, and decode entities
+        text = html
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+          .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+          .replace(/<header[\s\S]*?<\/header>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/&amp;/g, '&')
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&nbsp;/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      }
+
+      const truncated = text.length > maxLength
+      const content = text.slice(0, maxLength)
+
+      return {
+        url,
+        content_length: text.length,
+        truncated,
+        content,
+      }
+    } catch (err: any) {
+      return { error: `Fetch failed: ${err.message}` }
+    }
+  },
+}
+
 // ── Tool group ──────────────────────────────────────────────────────────
 
 export const dataToolGroup: ToolGroup = {
   name: 'data',
-  tools: [getMembers, getMemberDetail, getOpenTasks, getMemoriesData, getCheckins, getClasses, getDataLenses],
+  tools: [getMembers, getMemberDetail, getOpenTasks, getMemoriesData, getCheckins, getClasses, getDataLenses, webSearch, webFetch],
 }
