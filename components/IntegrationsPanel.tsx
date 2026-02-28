@@ -274,24 +274,31 @@ export default function IntegrationsPanel() {
   }, [flash])
 
   const handleConnect = async (id: string, credentials?: Record<string, string>) => {
-    const res = await fetch(`/api/integrations/${id}/connect`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(credentials ? { credentials } : {}),
-    })
-    const json = await res.json()
+    try {
+      const res = await fetch(`/api/integrations/${id}/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(credentials ? { credentials } : {}),
+      })
+      const json = await res.json()
 
-    if (!res.ok) throw new Error(json.error ?? 'Connection failed')
+      if (!res.ok) {
+        setFlash({ type: 'error', message: json.error ?? 'Connection failed' })
+        return
+      }
 
-    if (json.redirectUrl) {
-      // OAuth: redirect user to provider
-      window.location.href = json.redirectUrl
-      return
+      if (json.redirectUrl) {
+        // OAuth: redirect user to provider
+        window.location.href = json.redirectUrl
+        return
+      }
+
+      // API key: success — reload
+      setFlash({ type: 'success', message: `Connected successfully.` })
+      await loadConnected()
+    } catch (err: any) {
+      setFlash({ type: 'error', message: err.message ?? 'Connection failed' })
     }
-
-    // API key: success — reload
-    setFlash({ type: 'success', message: `Connected successfully.` })
-    await loadConnected()
   }
 
   const handleDisconnect = async (id: string) => {
