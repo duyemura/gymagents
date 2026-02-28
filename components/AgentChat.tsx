@@ -316,7 +316,8 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
   const [status, setStatus] = useState<string>('idle') // idle | active | waiting_input | waiting_approval | completed | failed
-  const [mode, setMode] = useState<AutonomyMode>('semi_auto')
+  // Chat is always turn_based — full_auto/semi_auto are for headless workflows only
+  const mode: AutonomyMode = 'turn_based'
   const [inputText, setInputText] = useState('')
   const [goalText, setGoalText] = useState(initialGoal ?? '')
   const [thinking, setThinking] = useState(false)
@@ -574,24 +575,6 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
     await consumeSSE(response)
   }, [sessionId, consumeSSE])
 
-  const changeMode = useCallback(async (newMode: AutonomyMode) => {
-    setMode(newMode)
-    if (!sessionId) return
-
-    const response = await fetch('/api/agents/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'set_mode',
-        sessionId,
-        mode: newMode,
-      }),
-    })
-
-    if (response.ok && response.body) {
-      await consumeSSE(response)
-    }
-  }, [sessionId, consumeSSE])
 
   // ── Input handlers ─────────────────────────────────────────────────────────
 
@@ -617,7 +600,7 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
     el.style.height = Math.min(el.scrollHeight, 120) + 'px'
   }
 
-  const isInputDisabled = thinking || status === 'active' || status === 'completed' || status === 'failed'
+  const isInputDisabled = thinking || status === 'active' || status === 'failed'
   const showApprovals = pendingApprovals.length > 0 && status === 'waiting_approval'
   const canSendMessage = status === 'waiting_input' || status === 'waiting_approval'
 
@@ -660,7 +643,6 @@ export default function AgentChat({ accountId, agentId, initialGoal, onTaskCreat
               </span>
             )}
           </div>
-          <ModeSelector mode={mode} onChange={changeMode} disabled={thinking} />
         </div>
         {sessionId && (
           <p className="text-[10px] text-gray-400 mt-0.5">
