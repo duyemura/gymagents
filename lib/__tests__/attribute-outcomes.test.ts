@@ -18,6 +18,7 @@ import { NextRequest } from 'next/server'
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 let mockTasks: any[] = []
+let mockAccounts: any[] = []
 let mockUpdateCalls: Array<{ id: string; update: Record<string, any> }> = []
 
 function makeChain(resolvedData: any) {
@@ -59,6 +60,9 @@ vi.mock('@/lib/supabase', () => ({
       if (table === 'agent_tasks') {
         return makeChain({ data: mockTasks, error: null })
       }
+      if (table === 'accounts') {
+        return makeChain({ data: mockAccounts, error: null })
+      }
       return makeChain({ data: null, error: null })
     }),
   },
@@ -83,19 +87,24 @@ function makeRequest(secret?: string) {
   return new NextRequest('http://localhost:3000/api/cron/attribute-outcomes', { headers })
 }
 
-function makeTaskWithGym(overrides: Record<string, any> = {}) {
+function makeTask(overrides: Record<string, any> = {}) {
   return {
     id: 'task-001',
-    account_id: 'gym-001',
+    account_id: 'acct-001',
     status: 'awaiting_reply',
     outcome: null,
     member_email: 'dan@example.com',
     member_id: 'member-001',
     created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
-    gyms: {
-      pushpress_api_key: 'pp-key-123',
-      pushpress_company_id: 'company-001',
-    },
+    ...overrides,
+  }
+}
+
+function makeAccount(overrides: Record<string, any> = {}) {
+  return {
+    id: 'acct-001',
+    pushpress_api_key: 'pp-key-123',
+    pushpress_company_id: 'company-001',
     ...overrides,
   }
 }
@@ -109,6 +118,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
     vi.resetModules()
     vi.clearAllMocks()
     mockTasks = []
+    mockAccounts = [makeAccount()]
     mockUpdateCalls = []
     mockPpGet.mockReset()
     const mod = await import('@/app/api/cron/attribute-outcomes/route')
@@ -137,7 +147,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
   })
 
   it('attributes "engaged" when ppGet returns a matching checkin', async () => {
-    const task = makeTaskWithGym()
+    const task = makeTask()
     mockTasks = [task]
 
     // ppGet returns checkins — one matches the task's member_id
@@ -154,7 +164,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
   })
 
   it('calls ppGet with correct Platform v1 params', async () => {
-    const task = makeTaskWithGym()
+    const task = makeTask()
     mockTasks = [task]
     mockPpGet.mockResolvedValue([])
 
@@ -170,7 +180,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
   })
 
   it('filters checkins by c.customer === task.member_id', async () => {
-    const task = makeTaskWithGym({ member_id: 'member-001' })
+    const task = makeTask({ member_id: 'member-001' })
     mockTasks = [task]
 
     // ppGet returns checkins for a DIFFERENT member — should NOT attribute
@@ -185,7 +195,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
   })
 
   it('marks "unresponsive" when 14-day window expires with no checkin', async () => {
-    const task = makeTaskWithGym({
+    const task = makeTask({
       created_at: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(), // 15 days ago
     })
     mockTasks = [task]
@@ -202,10 +212,9 @@ describe('GET /api/cron/attribute-outcomes', () => {
   })
 
   it('skips tasks without pushpress_api_key', async () => {
-    const task = makeTaskWithGym({
-      gyms: { pushpress_api_key: null, pushpress_company_id: null },
-    })
+    const task = makeTask()
     mockTasks = [task]
+    mockAccounts = [makeAccount({ pushpress_api_key: null })]
 
     const res = await handler(makeRequest('test-cron-secret'))
     const body = await res.json()
@@ -217,7 +226,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
   })
 
   it('handles PushPress API error gracefully without crashing', async () => {
-    const task = makeTaskWithGym()
+    const task = makeTask()
     mockTasks = [task]
 
     mockPpGet.mockRejectedValue(new Error('Network timeout'))
@@ -231,7 +240,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
   })
 
   it('does not attribute tasks within window that have no checkin yet', async () => {
-    const task = makeTaskWithGym({
+    const task = makeTask({
       created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // 5 days ago
     })
     mockTasks = [task]
@@ -248,7 +257,7 @@ describe('GET /api/cron/attribute-outcomes', () => {
   })
 
   it('attributes "engaged" without a dollar amount (pricing not available from API)', async () => {
-    const task = makeTaskWithGym()
+    const task = makeTask()
     mockTasks = [task]
 
     mockPpGet.mockResolvedValue([

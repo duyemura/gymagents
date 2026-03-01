@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
   const { data: tasks, error: tasksError } = await supabaseAdmin
     .from('agent_tasks')
-    .select('*, gyms(pushpress_api_key, pushpress_company_id)')
+    .select('*')
     .in('status', ['resolved', 'awaiting_reply'])
     .is('outcome', null)
     .not('member_email', 'is', null)
@@ -38,12 +38,22 @@ export async function GET(req: NextRequest) {
 
   if (!tasks?.length) return NextResponse.json({ checked: 0, attributed: 0, expired: 0 })
 
+  // Fetch accounts with PushPress credentials (no FK on agent_tasks → accounts)
+  const accountIds = [...new Set(tasks.map((t: any) => t.account_id))]
+  const { data: accountRows } = await supabaseAdmin
+    .from('accounts')
+    .select('id, pushpress_api_key, pushpress_company_id')
+    .in('id', accountIds)
+    .not('pushpress_api_key', 'is', null)
+
+  const accountMap = new Map((accountRows ?? []).map(a => [a.id, a]))
+
   let attributed = 0
   let expired = 0
 
   for (const task of tasks) {
-    const gym = (task as any).gyms
-    if (!gym?.pushpress_api_key) continue
+    const account = accountMap.get((task as any).account_id)
+    if (!account?.pushpress_api_key) continue
 
     const taskCreatedAt = new Date(task.created_at)
     const windowExpired = Date.now() - taskCreatedAt.getTime() > 14 * 24 * 60 * 60 * 1000
@@ -52,7 +62,7 @@ export async function GET(req: NextRequest) {
       // Check if member checked in since task was created via Platform API v1
       let apiKey: string
       try {
-        apiKey = decrypt(gym.pushpress_api_key)
+        apiKey = decrypt(account.pushpress_api_key)
       } catch {
         console.error(`[attribute-outcomes] Could not decrypt API key for task ${task.id}`)
         continue
@@ -64,7 +74,7 @@ export async function GET(req: NextRequest) {
         apiKey,
         '/checkins',
         { startTimestamp: String(createdAtSec), endTimestamp: String(nowSec) },
-        gym.pushpress_company_id,
+        account.pushpress_company_id,
       )
       const hasCheckin = checkins.some(c => c.customer === task.member_id)
 

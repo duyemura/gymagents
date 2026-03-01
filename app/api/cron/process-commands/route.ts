@@ -69,20 +69,30 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     // 2. Process autopilot tasks — send messages for tasks that don't require approval
     const { data: autopilotTasks } = await supabaseAdmin
       .from('agent_tasks')
-      .select('*, gyms(autopilot_enabled, gym_name)')
+      .select('*')
       .eq('requires_approval', false)
       .eq('status', 'open')
       .not('member_email', 'is', null)
       .limit(20)
 
+    // Fetch accounts for autopilot settings (no FK on agent_tasks → accounts)
+    const autopilotAccountIds = [...new Set((autopilotTasks ?? []).map((t: any) => t.account_id))]
+    const { data: autopilotAccounts } = autopilotAccountIds.length > 0
+      ? await supabaseAdmin
+          .from('accounts')
+          .select('id, autopilot_enabled, account_name')
+          .in('id', autopilotAccountIds)
+      : { data: [] }
+    const accountMap = new Map((autopilotAccounts ?? []).map(a => [a.id, a]))
+
     for (const task of autopilotTasks ?? []) {
-      const gym = (task as any).gyms
-      if (!gym?.autopilot_enabled) continue
+      const account = accountMap.get((task as any).account_id)
+      if (!account?.autopilot_enabled) continue
 
       // Respect quiet hours — don't send messages outside 8am-9pm local time
-      const gymTimezone = await getAccountTimezone(task.gym_id)
-      if (isQuietHours(gymTimezone)) {
-        console.log(`[process-commands] Skipping autopilot for task ${task.id} — quiet hours in ${gymTimezone}`)
+      const accountTimezone = await getAccountTimezone((task as any).account_id)
+      if (isQuietHours(accountTimezone)) {
+        console.log(`[process-commands] Skipping autopilot for task ${task.id} — quiet hours in ${accountTimezone}`)
         continue
       }
 
@@ -91,7 +101,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const memberEmail = task.member_email
       const memberName = task.member_name ?? (memberEmail?.split('@')[0] ?? 'there')
       const messageSubject = (ctx.messageSubject as string) ?? 'Checking in from the gym'
-      const accountName = gym.account_name ?? 'the gym'
+      const accountName = account.account_name ?? 'the gym'
 
       if (!draftMessage || !memberEmail) continue
 
@@ -99,7 +109,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const { data: optout } = await supabaseAdmin
         .from('communication_optouts')
         .select('id')
-        .eq('account_id', task.gym_id)
+        .eq('account_id', (task as any).account_id)
         .eq('channel', 'email')
         .eq('contact', memberEmail)
         .maybeSingle()
@@ -115,9 +125,9 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       }
 
       // Check daily send limit using shared helper
-      const todayCount = await getAutopilotSendCountToday(task.gym_id)
+      const todayCount = await getAutopilotSendCountToday((task as any).account_id)
       if (todayCount >= DAILY_AUTOPILOT_LIMIT) {
-        console.log(`[process-commands] Autopilot daily limit (${DAILY_AUTOPILOT_LIMIT}) reached for gym ${task.gym_id}`)
+        console.log(`[process-commands] Autopilot daily limit (${DAILY_AUTOPILOT_LIMIT}) reached for account ${(task as any).account_id}`)
         break
       }
 
@@ -128,10 +138,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           ${draftMessage.split('\n').map((p: string) => `<p>${p}</p>`).join('')}
         </div>`
 
-        const gmailAddress = await isGmailConnected(task.gym_id)
+        const gmailAddress = await isGmailConnected((task as any).account_id)
         if (gmailAddress) {
           const result = await sendGmailMessage({
-            accountId: task.gym_id,
+            accountId: (task as any).account_id,
             to: memberEmail,
             subject: messageSubject,
             body: draftMessage,
@@ -151,7 +161,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         // Track in outbound_messages for audit trail
         try {
           await dbCommands.createOutboundMessage({
-            account_id: task.gym_id,
+            account_id: (task as any).account_id,
             task_id: task.id,
             sent_by_agent: 'retention',
             channel: 'email',
@@ -171,7 +181,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
         // Log conversation + update task status
         await appendConversation(task.id, {
-          accountId: task.gym_id,
+          accountId: (task as any).account_id,
           role: 'agent',
           content: draftMessage,
           agentName: 'retention',
@@ -204,7 +214,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       if (!memberEmail) continue
 
       // Respect quiet hours — defer follow-ups outside 8am-9pm local time
-      const followUpTimezone = await getAccountTimezone(task.gym_id)
+      const followUpTimezone = await getAccountTimezone((task as any).account_id)
       if (isQuietHours(followUpTimezone)) {
         console.log(`[process-commands] Deferring follow-up for task ${task.id} — quiet hours in ${followUpTimezone}`)
         continue
@@ -214,7 +224,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       const { data: optout } = await supabaseAdmin
         .from('communication_optouts')
         .select('id')
-        .eq('account_id', task.gym_id)
+        .eq('account_id', (task as any).account_id)
         .eq('channel', 'email')
         .eq('contact', memberEmail)
         .maybeSingle()
@@ -257,7 +267,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       // Ask the AI: should we follow up, close, escalate, or wait?
       const decision = await evaluateFollowUp({
         taskType: task.task_type ?? 'churn_risk',
-        accountId: task.gym_id,
+        accountId: (task as any).account_id,
         memberName: task.member_name ?? 'there',
         memberEmail,
         conversationHistory,
@@ -292,10 +302,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
         try {
           // Send the AI-drafted follow-up via Gmail or Resend
           let providerId: string | undefined
-          const gmailAddress = await isGmailConnected(task.gym_id)
+          const gmailAddress = await isGmailConnected((task as any).account_id)
           if (gmailAddress) {
             const result = await sendGmailMessage({
-              accountId: task.gym_id,
+              accountId: (task as any).account_id,
               to: memberEmail,
               subject: 'Re: Checking in',
               body: decision.message,
@@ -317,7 +327,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           // Track in outbound_messages
           try {
             await dbCommands.createOutboundMessage({
-              account_id: task.gym_id,
+              account_id: (task as any).account_id,
               task_id: task.id,
               sent_by_agent: 'retention',
               channel: 'email',
@@ -335,7 +345,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
           }
 
           await appendConversation(task.id, {
-            accountId: task.gym_id,
+            accountId: (task as any).account_id,
             role: 'agent',
             content: decision.message,
             agentName: 'retention',

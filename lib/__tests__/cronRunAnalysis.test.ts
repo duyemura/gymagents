@@ -205,7 +205,7 @@ describe('POST /api/cron/run-analysis', () => {
     vi.mocked(supabaseAdmin.from).mockImplementation(defaultFromImpl)
 
     mockAccounts = [{
-      id: 'acct-001', gym_name: 'Test Gym',
+      id: 'acct-001', account_name: 'Test Gym',
       pushpress_api_key: 'encrypted-key',
       pushpress_company_id: 'company-001',
     }]
@@ -266,8 +266,8 @@ describe('POST /api/cron/run-analysis', () => {
 
   it('skips accounts with no due automations', async () => {
     mockAccounts = [
-      { id: 'acct-001', gym_name: 'Active Gym', pushpress_api_key: 'k1', pushpress_company_id: 'c1' },
-      { id: 'acct-002', gym_name: 'Empty Gym', pushpress_api_key: 'k2', pushpress_company_id: 'c2' },
+      { id: 'acct-001', account_name: 'Active Gym', pushpress_api_key: 'k1', pushpress_company_id: 'c1' },
+      { id: 'acct-002', account_name: 'Empty Gym', pushpress_api_key: 'k2', pushpress_company_id: 'c2' },
     ]
 
     let autoCallCount = 0

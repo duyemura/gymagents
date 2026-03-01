@@ -70,7 +70,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   // Fetch all connected accounts (include timezone for local-hour scheduling)
   const { data: accounts, error: accountsError } = await supabaseAdmin
     .from('accounts')
-    .select('id, gym_name, pushpress_api_key, pushpress_company_id, timezone')
+    .select('id, account_name, pushpress_api_key, pushpress_company_id, timezone')
     .not('pushpress_api_key', 'is', null)
 
   if (accountsError) {
@@ -100,7 +100,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       try {
         snapshot = await buildAccountSnapshot(
           account.id,
-          account.gym_name ?? 'Business',
+          account.account_name ?? 'Business',
           apiKey,
           account.pushpress_company_id ?? undefined,
         )
@@ -282,7 +282,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
       if (allInsights.length > 0) {
         generateAnalysisArtifact(
           account.id,
-          account.gym_name ?? 'Your Business',
+          account.account_name ?? 'Your Business',
           { insights: allInsights, insightsFound: allInsights.length, tasksCreated: totalTasksCreated },
           snapshot,
         ).catch(err => {
