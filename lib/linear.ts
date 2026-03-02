@@ -411,17 +411,18 @@ export async function getWorkflowStates(): Promise<WorkflowStateIds | null> {
 
     const map: WorkflowStateIds = {}
 
-    // Map by Linear's semantic type field
-    const typeMap: Record<string, keyof WorkflowStateIds> = {
-      backlog: 'backlog',
-      started: 'inProgress',
-      completed: 'done',
-      canceled: 'cancelled',
-      triage: 'triage',
+    // Match by name first (handles multiple states with the same type,
+    // e.g. "In Progress" and "Stuck" are both type: started)
+    const nameMap: Record<string, keyof WorkflowStateIds> = {
+      'Backlog': 'backlog',
+      'In Progress': 'inProgress',
+      'Done': 'done',
+      'Canceled': 'cancelled',
+      'Triage': 'triage',
     }
 
     for (const state of states) {
-      const key = typeMap[state.type]
+      const key = nameMap[state.name]
       if (key && !map[key]) {
         map[key] = state.id
       }

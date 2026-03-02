@@ -357,7 +357,7 @@ describe('linear lifecycle hooks', () => {
             { id: 'st-1', name: 'Backlog', type: 'backlog' },
             { id: 'st-2', name: 'In Progress', type: 'started' },
             { id: 'st-3', name: 'Done', type: 'completed' },
-            { id: 'st-4', name: 'Cancelled', type: 'canceled' },
+            { id: 'st-4', name: 'Canceled', type: 'canceled' },
           ],
         }),
       })

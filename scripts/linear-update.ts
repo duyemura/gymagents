@@ -52,22 +52,26 @@ async function main() {
     const team = await client.team(teamId)
     const states = await team.states()
 
-    // Map CLI state names to Linear state types
-    const typeMap: Record<string, string> = {
-      backlog: 'backlog',
-      inProgress: 'started',
-      done: 'completed',
-      cancelled: 'canceled',
+    // Map CLI state names to Linear state names
+    const nameMap: Record<string, string> = {
+      backlog: 'Backlog',
+      inProgress: 'In Progress',
+      inReview: 'In Review',
+      stuck: 'Stuck',
+      done: 'Done',
+      cancelled: 'Canceled',
+      duplicate: 'Duplicate',
+      todo: 'Todo',
     }
 
-    // First try type-based match (standard states)
-    const targetType = typeMap[stateName]
-    if (targetType) {
-      const state = states.nodes.find(s => s.type === targetType)
-      return state?.id ?? null
+    // First try exact name match (handles multiple states with same type)
+    const targetName = nameMap[stateName]
+    if (targetName) {
+      const state = states.nodes.find(s => s.name === targetName)
+      if (state) return state.id
     }
 
-    // Fall back to name-based match (custom states like "Stuck")
+    // Fall back to case-insensitive name match
     const state = states.nodes.find(s => s.name.toLowerCase() === stateName.toLowerCase())
     return state?.id ?? null
   }
