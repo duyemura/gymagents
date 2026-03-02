@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 import {
   startSession,
   resumeSession,
@@ -109,15 +109,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  let apiKey: string
-  try {
-    apiKey = decrypt(rawKey)
-  } catch {
-    return new Response(JSON.stringify({ error: 'Failed to decrypt API key' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
+  const apiKey = tryDecrypt(rawKey)
 
   // Stream SSE
   const encoder = new TextEncoder()

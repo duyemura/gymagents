@@ -258,6 +258,11 @@ export async function* startSession(config: SessionConfig): AsyncGenerator<Sessi
     updatedAt: new Date().toISOString(),
   }
 
+  // Inject PushPress credentials so data tools can authenticate
+  if (config.apiKey) {
+    injectCredentials(session, config.apiKey, config.companyId ?? '')
+  }
+
   // Persist initial session
   await createSessionRecord(session)
 

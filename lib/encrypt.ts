@@ -1,13 +1,15 @@
 import crypto from 'crypto'
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY!
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY
 
 function getKey(): Buffer {
+  if (!ENCRYPTION_KEY) throw new Error('ENCRYPTION_KEY not set')
   // Derive a 32-byte key from the env variable
   return crypto.createHash('sha256').update(ENCRYPTION_KEY).digest()
 }
 
 export function encrypt(text: string): string {
+  if (!ENCRYPTION_KEY) return text
   const iv = crypto.randomBytes(16)
   const key = getKey()
   const cipher = crypto.createCipheriv('aes-256-cbc', key, iv)
@@ -17,6 +19,7 @@ export function encrypt(text: string): string {
 }
 
 export function decrypt(encryptedText: string): string {
+  if (!ENCRYPTION_KEY) return encryptedText
   const parts = encryptedText.split(':')
   const iv = Buffer.from(parts[0], 'hex')
   const encrypted = parts[1]
@@ -25,4 +28,18 @@ export function decrypt(encryptedText: string): string {
   let decrypted = decipher.update(encrypted, 'hex', 'utf8')
   decrypted += decipher.final('utf8')
   return decrypted
+}
+
+/**
+ * Try to decrypt, falling back to the raw value if decryption fails
+ * or ENCRYPTION_KEY is not set. Use this for values that may have been
+ * stored as plaintext (e.g. when ENCRYPTION_KEY wasn't configured).
+ */
+export function tryDecrypt(value: string): string {
+  if (!ENCRYPTION_KEY) return value
+  try {
+    return decrypt(value)
+  } catch {
+    return value
+  }
 }

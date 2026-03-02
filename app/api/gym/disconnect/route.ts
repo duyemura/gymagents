@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getAccountForUser } from '@/lib/db/accounts'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 import { deregisterGymAgentsWebhook } from '@/lib/pushpress-sdk'
 
 export async function POST(req: NextRequest) {
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     // Deactivate the PushPress webhook if we registered one
     if (account.webhook_id && account.pushpress_api_key && account.pushpress_company_id) {
       try {
-        const apiKey = decrypt(account.pushpress_api_key as string)
+        const apiKey = tryDecrypt(account.pushpress_api_key as string)
         await deregisterGymAgentsWebhook(
           { apiKey, companyId: account.pushpress_company_id as string },
           account.webhook_id as string

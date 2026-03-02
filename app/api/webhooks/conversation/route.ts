@@ -33,7 +33,7 @@ import { routeInbound } from '@/lib/channel-router'
 import { handleInbound } from '@/lib/agents/front-desk'
 import { handoffConversation } from '@/lib/agents/escalation'
 import { supabaseAdmin } from '@/lib/supabase'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 
 export async function POST(req: NextRequest) {
   let body: any
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Account not found' }, { status: 404 })
     }
 
-    const apiKey = account.pushpress_api_key ? decrypt(account.pushpress_api_key) : ''
+    const apiKey = account.pushpress_api_key ? tryDecrypt(account.pushpress_api_key) : ''
     const companyId = account.pushpress_company_id ?? ''
 
     // 2. Route through channel router

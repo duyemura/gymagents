@@ -112,7 +112,7 @@ vi.mock('@/lib/claude', () => ({
 
 // ── Mock encrypt ────────────────────────────────────────────────────────────
 vi.mock('@/lib/encrypt', () => ({
-  decrypt: mockDecrypt,
+  tryDecrypt: mockDecrypt,
 }))
 
 // ── Mock cost ───────────────────────────────────────────────────────────────

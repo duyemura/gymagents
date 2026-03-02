@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { getAccountForUser } from '@/lib/db/accounts'
 import { supabaseAdmin } from '@/lib/supabase'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 import { createPushPressClient } from '@/lib/pushpress'
 import { recommend } from '@/lib/setup-recommend'
 import { writeStatsFromSnapshot } from '@/lib/sync-business-stats'
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     // ── Fresh data pull from PushPress ────────────────────────────────────────
 
-    const apiKey = decrypt(accountRow.pushpress_api_key)
+    const apiKey = tryDecrypt(accountRow.pushpress_api_key)
     const companyId = accountRow.pushpress_company_id || ''
 
     console.log('[setup/recommend] Fetching fresh data for', accountName)
