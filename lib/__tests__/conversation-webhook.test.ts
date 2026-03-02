@@ -40,7 +40,7 @@ vi.mock('@/lib/supabase', () => ({
 }))
 
 vi.mock('@/lib/encrypt', () => ({
-  decrypt: mockDecrypt,
+  tryDecrypt: mockDecrypt,
 }))
 
 // ── Import route handler ──────────────────────────────────────────────────────

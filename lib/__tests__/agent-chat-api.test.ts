@@ -41,7 +41,7 @@ vi.mock('@/lib/db/accounts', () => ({
 }))
 
 vi.mock('@/lib/encrypt', () => ({
-  decrypt: vi.fn().mockReturnValue('test-key'),
+  tryDecrypt: vi.fn().mockReturnValue('test-key'),
 }))
 
 // ── Import after mocks ──────────────────────────────────────────────────

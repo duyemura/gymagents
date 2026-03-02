@@ -67,7 +67,7 @@ vi.mock('../artifacts/render', () => ({
 
 // ── Mock encrypt ────────────────────────────────────────────────────────────
 vi.mock('../encrypt', () => ({
-  decrypt: mockDecrypt,
+  tryDecrypt: mockDecrypt,
 }))
 
 // ── Mock pushpress-platform ─────────────────────────────────────────────────

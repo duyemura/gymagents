@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 import { ppGet } from '@/lib/pushpress-platform'
 import type { PPCheckin } from '@/lib/pushpress-platform'
 
@@ -60,13 +60,7 @@ export async function GET(req: NextRequest) {
 
     try {
       // Check if member checked in since task was created via Platform API v1
-      let apiKey: string
-      try {
-        apiKey = decrypt(account.pushpress_api_key)
-      } catch {
-        console.error(`[attribute-outcomes] Could not decrypt API key for task ${task.id}`)
-        continue
-      }
+      const apiKey = tryDecrypt(account.pushpress_api_key)
 
       const createdAtSec = Math.floor(taskCreatedAt.getTime() / 1000)
       const nowSec = Math.floor(Date.now() / 1000)

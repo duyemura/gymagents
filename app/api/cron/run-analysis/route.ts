@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 import type { AccountSnapshot, AccountInsight } from '@/lib/agents/GMAgent'
 import { runAgentAnalysis } from '@/lib/agents/agent-runtime'
 import { runUnattendedSession } from '@/lib/agents/session-runtime'
@@ -86,14 +86,7 @@ async function handler(req: NextRequest): Promise<NextResponse> {
 
   for (const account of accounts ?? []) {
     try {
-      // Decrypt API key
-      let apiKey: string
-      try {
-        apiKey = decrypt(account.pushpress_api_key)
-      } catch (err) {
-        console.error(`[run-agents] Could not decrypt API key for account ${account.id}:`, err)
-        continue
-      }
+      const apiKey = tryDecrypt(account.pushpress_api_key)
 
       // Build snapshot via connector layer
       let snapshot: AccountSnapshot

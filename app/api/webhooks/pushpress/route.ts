@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { runEventAgentWithMCP } from '@/lib/claude'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 import { GMAgent } from '@/lib/agents/GMAgent'
 import { createInsightTask } from '@/lib/db/tasks'
 import type { AgentDeps } from '@/lib/agents/BaseAgent'
@@ -140,7 +140,7 @@ async function processWebhookAsync(rawBody: string) {
   // Decrypt the stored API key to pass to MCP
   let decryptedApiKey: string
   try {
-    decryptedApiKey = decrypt(account.pushpress_api_key)
+    decryptedApiKey = tryDecrypt(account.pushpress_api_key)
   } catch (err: any) {
     console.error('[webhook] could not decrypt API key for gym', account.id, err.message)
     // Still mark as processed so we know it ran

@@ -68,9 +68,9 @@ vi.mock('@/lib/supabase', () => ({
   },
 }))
 
-// Mock decrypt — returns the input for test simplicity
+// Mock tryDecrypt — returns the input for test simplicity
 vi.mock('@/lib/encrypt', () => ({
-  decrypt: vi.fn((val: string) => `decrypted-${val}`),
+  tryDecrypt: vi.fn((val: string) => `decrypted-${val}`),
 }))
 
 // Mock ppGet — the Platform API v1 client

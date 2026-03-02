@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
 import { getAccountForUser } from '@/lib/db/accounts'
 import { supabaseAdmin } from '@/lib/supabase'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 import { syncBusinessStats } from '@/lib/sync-business-stats'
 import { syncSchedule } from '@/lib/sync-schedule'
 
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No PushPress connection found' }, { status: 400 })
     }
 
-    const apiKey = decrypt(row.pushpress_api_key)
+    const apiKey = tryDecrypt(row.pushpress_api_key)
     const companyId = row.pushpress_company_id || ''
     const avgPrice = row.avg_membership_price || 150
 

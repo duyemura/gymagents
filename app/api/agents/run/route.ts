@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { getAccountForUser } from '@/lib/db/accounts'
 import { createPushPressClient, getAtRiskMembers } from '@/lib/pushpress'
 import { runAtRiskDetector } from '@/lib/claude'
-import { decrypt } from '@/lib/encrypt'
+import { tryDecrypt } from '@/lib/encrypt'
 import { calcCost, calcTimeSaved } from '@/lib/cost'
 import { createInsightTask } from '@/lib/db/tasks'
 import { runAgentAnalysis } from '@/lib/agents/agent-runtime'
@@ -155,7 +155,7 @@ export async function POST(req: NextRequest) {
 
         emit({ type: 'status', text: 'Fetching member data from PushPress\u2026' })
 
-        const apiKey = decrypt(account.pushpress_api_key as string)
+        const apiKey = tryDecrypt(account.pushpress_api_key as string)
         const accountId = account.id as string
         const accountName = ((account.gym_name ?? account.account_name ?? 'Your Business') as string)
 
